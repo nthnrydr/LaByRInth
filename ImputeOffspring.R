@@ -20,15 +20,19 @@
 ## https://github.com/dellaporta-laboratory/LB-Impute
 
 
-
-imputeoffspring <- function(mystates, mystartcol, varcount, samplecount,
+imputeoffspring <- function(variants, parents,
+                            mystates, mystartcol, varcount, samplecount,
                             mygenotypecheck, myreadcheck, mycoveragecheck, myreadqualcheck,
                             myerr, myrecomb, mymarkovorder, myresolve, myminmarkers,
                             mygenotypeerror, mydrp, mykeeporiginal) {
 
                                         #TODO: not all indices of the colon seperation are guaranteed to exist. watch for this#
     
-    
+    parmap <- retrieveparentals(variants, parents)
+    total <- ncol(variants)
+                                        #TODO: don't just take first Allele Depth number#
+                                        #TODO: use a nice progress bar if possible or a rotating wheel if in terminal#
+    allsamplesmap <- matrix(NA, 
 }
 
 ##' Find parental genotype calls.
