@@ -68,7 +68,7 @@ LBMethod <- function(vcfin, vcfout, method, parents, cores=1) {
 ##' @param keeporiginal
 ##' @return path to saved vcf file
 ##' @author Jason Vander Woude
-LBImpute <- function(vcfin, vcfout, parentnamess,
+LBImpute <- function(vcfin, vcfout, parentnames,
                      err = 0.05, recomb = 1000000, markovorder = 6,
                      offspringimpute = FALSE, parentimpute = TRUE,
                      resolveconflicts = FALSE, startcol = 10,
@@ -76,6 +76,12 @@ LBImpute <- function(vcfin, vcfout, parentnamess,
                      minfraction = 0.5, minmarkers = 0,
                      genotypeerror = 0.05, drp = TRUE,
                      keeporiginal = FALSE) {
+
+    ## Check validity of arguments
+    if (offspringimpute & parentimpute) {
+        writeLines("Offspring will be imputed and parents will not")
+    }
+                                        #TODO: handle offspring/parent imputation choice better#
                                         #TODO: add mclapply option depending on installation#
                                         #TODO: make splitstr as strsplit[[1]]#
     
@@ -91,7 +97,13 @@ LBImpute <- function(vcfin, vcfout, parentnamess,
 
     header <- headerLines[length(headerLines)] #get column headings
     header <- substr(header, 2, nchar(header)) #remove leading '#'
-    colnames(variants) <- toupper(strsplit(header, "\t")[[1]]) #[[1]] is because strsplit returns a 1-element list
+    colnames(variants) <- strsplit(header, "\t")[[1]] #[[1]] is because strsplit returns a 1-element list
+
+    ## Make sure that the parent names are valid
+    foundparents <- parentnames %in% colnames(variants)
+    if (! all(foundparents)) {
+        stop(paste("Could not find parents:", paste(parentnames[!foundparents], collapse=", ")))
+    }
     
     ## formatExample <- strsplit(variants[1], "\t")[9] #In a vcf file column 9 is the FORMAT column with colon seperated values
     formatExample <- variants[1, "FORMAT"]
@@ -101,19 +113,22 @@ LBImpute <- function(vcfin, vcfout, parentnamess,
     genotypecheck <- match("GT", formatFields) #GT = genotype
     readcheck <- match("AD", formatFields)     #AD = allele depth
     genotypecheck <- match("DP", formatFields) #DP = depth
-    readquality <- match("GQ", formatFields)   #GQ = genotype read quality
+    readqualcheck <- match("GQ", formatFields)   #GQ = genotype read quality
 
     states <- 3 #homozygous parent 1, homozygous parent 2, heterozygous
 
     ## Group sites to impute by chromosome
     chroms <- unique(variants[,"CHROM"])
     imputationSets <- lapply(chroms, function(chrom) {
-        variants[variants[,"CHROM"] == chrom,]
+        retval <- variants[variants[,"CHROM"] == chrom,]
+        class(retval) <- c("vcf", class(retval))
+        retval
     })
 
-    if (parentimpute) {
+    ## Only one imputation will be done
+    if (offspringimpute) {
        newVariants <- lapply(imputationSets, imputeparents)
-    } else if (offspringimpute) {
+    } else if (parentimpute) {
         newVariants <- lapply(imputationSets, imputeoffspring)
     }
 
