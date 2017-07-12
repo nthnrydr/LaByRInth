@@ -1,4 +1,4 @@
-## Copyright 2015, Jason Vander Woude, Nathan Ryder
+## Copyright 2017, Jason Vander Woude, Nathan Ryder
 
 ## Licensed under the Apache License, Version 2.0 (the "License");
 ## you may not use this file except in compliance with the License.
@@ -11,6 +11,13 @@
 ## WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 ## See the License for the specific language governing permissions and
 ## limitations under the License.
+
+## This work is derived from the original LB-Impute method written by
+## Christopher Heffelfinger, Christopher Fragoso, Hongyu Zhao, and
+## Stephen Dellaporta. The method was originally written in Java and
+## the purpose of this project was to port it to R. The original work
+## was also licensed under APLv2 and can be found here:
+## https://github.com/dellaporta-laboratory/LB-Impute
 
 
 ##' Get the names of all sample variants.
