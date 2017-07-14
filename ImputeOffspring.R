@@ -32,8 +32,27 @@ imputeoffspring <- function(variants, parents,
     total <- ncol(variants)
                                         #TODO: don't just take first Allele Depth number#
                                         #TODO: use a nice progress bar if possible or a rotating wheel if in terminal#
-    allsamplesmap <- matrix(NA, 
+    ## allsamplesmap <- matrix(NA, )
 }
+
+
+makestatemap <- function(variants, sample, probpath) {
+    collapsebool <- apply(variants, 1, function(row){! all(is.na(row))}) #vector indicating which rows should be kept
+    collapseboolverify <- apply(variants, 1, function(row){! any(is.na(row))}) #vector indicating which rows should be kept
+
+    if (! all(collapsebool == collapseboolverify)) {
+        stop("Incorrect assignments have been made to this probpath") #in theory this should never happen
+    }
+
+    if (sum(collapsebool) > 0) {        #if there are kept sites (in this chromosome) for this sample/variant
+        keptpositions <- variants["POS"][collapsebool] #positions of sites with a real read
+        ## vcf format specifies that chromosomes must be in order I think
+        distances <- diff(keptpositions) #compute the distance between sequential positions
+        
+    }
+}
+
+
 
 ##' Find parental genotype calls.
 ##'
@@ -67,3 +86,5 @@ retrieveparentals <- function(variants, parents) {
 }
 
 
+
+    
