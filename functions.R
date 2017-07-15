@@ -24,18 +24,32 @@ nstates.probs <- function(probs) {
 
 findPath <- function(variants, probs, prefs) {
     ## probs should be a probs object
-    nprobs <- nprobs(probs)
+    nsites <- nprobs(probs)
     nstates <- nstates(probs)
     trellis <- prefs$markov.order + 2  # viterbi trellis size
     
-    ret.val <- rep(NA, nprobs)          # TODO(Jason): check if this is correct size
+    ret.val <- list()
     class(ret.val) <- "path"
+    ret.val$call <- rep(NA, nsites)
+    ret.val$post.prob <- matrix(NA, nrow = nsites, ncol = nstates)
 
-    if (nprobs < min.markers) {  # too few markers are present
+    probability.matrices <- list()
+    
+    if (nsites < min.markers) {  # too few markers are present
         return ret.val  # return a path of NA's
     } else {  # there are sufficient markers for imputation
-
-        for (i in 2:nprobs) {  
+        ## For each site in the sequence, for each possible set of states at
+        ## that site and the next, find the best possible path and its
+        ## probability. Since there are 3 possible states per site and we are
+        ## examining 2 sites in a row, this means that 3^2=9 paths will be
+        ## found. For the 3 possible paths associated with a given state of the
+        ## first site, normalize the probabilities. Do this for each of the 3
+        ## first sites, then row-bind these probability vectors together into a
+        ## matrix. Then, multiplying a vector of probabilities of the current
+        ## state by this matrix will give a probability vector of the next
+        ## state. Save these vectors into ret.val$post.prob then use them to
+        ## find the optimal genotype call.
+        for (i in 1:nsites) {  
             current.trellis <- min(trellis, )  # TODO(Jason): look into this
             current.path <- rep(nstates, current.trellis - 1)  # last path so inc to first
 
