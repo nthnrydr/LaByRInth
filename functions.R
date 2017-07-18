@@ -22,7 +22,7 @@ nstates.probs <- function(probs) {
 }
 
 
-findPath <- function(variants, probs, prefs) {
+FindPath <- function(variants, probs, prefs) {
     ## probs should be a probs object
     nprobs <- nprobs(probs)
     nstates <- nstates(probs)
@@ -55,7 +55,7 @@ findPath <- function(variants, probs, prefs) {
 }
 
 
-transProb <- function(recomb, dists, prefs) {
+TransProb <- function(recomb, dists, prefs) {
     if (recomb) {
         0.5 * (1 - exp(-dist/prefs$recomb.dist))
     } else {
@@ -64,7 +64,7 @@ transProb <- function(recomb, dists, prefs) {
 }
 
 
-increment <- function(x, max, min = 1) {
+Increment <- function(x, max, min = 1) {
     if (min >= max) {
         stop("max must be greater than min")
     }
@@ -86,3 +86,50 @@ increment <- function(x, max, min = 1) {
     }
     x
 }
+
+
+## Rewrite of "public void getprobabilities2(List<String> variants, int sample)"
+## from ImputeOffspring.java.  This calculates the emission probabilities for
+## each state based on allelic depth of coverage (using binomial assumption).
+
+## Incoming Variables:
+
+## formatExample <- strsplit(variants[1], "\t")[9]
+
+
+## offspring <- a 
+## num.variants <- the amount of variants (offspring).  Also length of vcf rows
+## minus identifiers
+## num.markers <- the amount of markers in the chromosome of a variant.  Also
+## length of vcf columns
+## genot.exists <- boolean vector of length num.markers of whether the genotype call (?/?)
+## is empty (./.) and if it is empty, genotypeboolean = F.
+##
+
+
+GetProbabilities <- function(variants) {
+    ## In a vcf file column 9 is the FORMAT column with colon separated values
+    format.example <- variants[1, "FORMAT"]  # Retrieve an example from the FORMAT column
+    format.fields <- strsplit(format.example, ":")[[1]] #[[1]] is because strsplit returns a 1-element list
+
+    ## Determine which positions in the format and data fields mean what
+    genotype.check <- match("GT", format.fields) #GT = genotype
+    allele.read.check <- match("AD", format.fields)  #AD = allele depth
+    depth.check <- match("DP", format.fields)  #DP = depth
+    readqual.check <- match("GQ", format.fields)   #GQ = genotype read quality
+
+    states <- 3  # homozygous parent 1, homozygous parent 2, heterozygous
+    just.variants <- variants[, (match("FORMAT", header) + 1):ncol(variants)]  # just the columns of variants
+    
+    prob.path <- matrix(nrow = ncol(just.variants), ncol = states)  # initialized probability path matrix
+    
+    ## Begin the 
+    apply(, 2, function(variant) {
+              sapply(variant, function(marker) {
+                         marker.fields <- strsplit(marker, ":")[[1]]
+                         if(marker.fields[genotype.check]=="./.") {
+                             prob.path[
+                     })
+          })
+          
+    GenotExists(offspring$Genotype[, 1])
