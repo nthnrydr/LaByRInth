@@ -89,6 +89,7 @@ viterbi <- function(probs, dists, prefs) {
     generatePath(path.tracker, which.max(probs.tracker))  # return best path
 }
 
+
 ##' Find the transission probability between hidden states
 ##'
 ##' Use the equations specified in the LB-Impute paper to compute the
@@ -169,21 +170,40 @@ Increment <- function(x, max, min = 1) {
 ##
 
 
-GetProbabilities <- function(variants) {
+GetProbabilities <- function(variants, sample) {
     ## In a vcf file column 9 is the FORMAT column with colon separated values
-    format.example <- variants[1, "FORMAT"]  # Retrieve an example from the FORMAT column
-    format.fields <- strsplit(format.example, ":")[[1]] #[[1]] is because strsplit returns a 1-element list
+    ## Retrieve an example from the FORMAT column to determine ordering
+    format.example <- variants[1, "FORMAT"]
+    ## [[1]] is because strsplit returns a 1-element list
+    format.fields <- strsplit(format.example, ":")[[1]] 
 
+    ## n.prefix.cols <- match("FORMAT", colnames(variants))
+    ## n.samples <- ncol(variants) - n.prefix.cols
+    
     ## Determine which positions in the format and data fields mean what
-    genotype.check <- match("GT", format.fields) #GT = genotype
-    allele.read.check <- match("AD", format.fields)  #AD = allele depth
-    depth.check <- match("DP", format.fields)  #DP = depth
-    readqual.check <- match("GQ", format.fields)   #GQ = genotype read quality
+    genotype.index    <- match("GT", format.fields)  #GT = genotype
+    allele.read.index <- match("AD", format.fields)  #AD = allele depth
+    depth.index       <- match("DP", format.fields)  #DP = depth
+    readqual.index    <- match("GQ", format.fields)  #GQ = genotype read quality
 
     states <- 3  # homozygous parent 1, homozygous parent 2, heterozygous
-    just.variants <- variants[, (match("FORMAT", header) + 1):ncol(variants)]  # just the columns of variants
+
+    sample.variant <- variants[, sample]  # just the column associated
+
+    ret.val <- matrix(NA, nrow = nrow(variants), ncol = states)
+
+    GetProb <- function(entry) {
+        ret.val <- NA
+        if (entry == "./.") {
+            ret.val <- rep(1, states)
+        } else {
+            if (strsplit(entry, ":")[[1]][genotype.index] == "./.") {
+                
+            }
+        }
+    }
     
-    prob.path <- matrix(nrow = ncol(just.variants), ncol = states)  # initialized probability path matrix
+    ## prob.path <- matrix(nrow = ncol(just.variants), ncol = states)  # initialized probability path matrix
     
     ## Begin the 
     apply(, 2, function(variant) {
