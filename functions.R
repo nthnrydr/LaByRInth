@@ -14,108 +14,93 @@
 ###   $drp
 
 
-nprobs.probs <- function(probs) {
+nsites.probs <- function(probs) {
     nrow(probs)
 }
+
 
 nstates.probs <- function(probs) {
     ncol(probs)
 }
 
 
-findPath <- function(variants, probs, prefs) {
-    ## probs should be a probs object
-    nsites <- nprobs(probs)
+##' Generate a path from a path tracker
+##'
+##' Given a path tracker (which is a specific type of matrix used in the viterbi
+##'     algorithm) and an index representing the final hidden state of the path,
+##'     compute the path that ended in that state.
+##' @title 
+##' @param path.tracker the integer matrix from which the path comes
+##' @param index which row does the path end at
+##' @return the path
+##' @examples
+##' path.tracker.a <- matrix(c(3,1,1,1,1,1,3,2,2,2,3,3),byrow=T,nrow=3)
+##' path.tracker.a
+##' generatePath(path.tracker.a, 1)
+##' generatePath(path.tracker.a, 2)
+##' generatePath(path.tracker.a, 3)
+##' @author Jason Vander Woude
+generatePath <- function(path.tracker, index) {
+    path <- rep(NA, ncol(path.tracker))
+    for (i in length(path):1) {
+        path[i] <- index <- path.tracker[index, i]
+    }
+    path  # return path
+}
+
+
+##' Find the most probable path using the viterbi algorithm
+##'
+##' See http://homepages.ulb.ac.be/~dgonze/TEACHING/viterbi.pdf for details
+##'     about the viterbi algorithm and understanding this implementation
+##' @title 
+##' @param probs emission probabilities
+##' @param dists vector of distances between sites
+##' @param prefs imputation preferences object
+##' @return the most probable sequence of states
+##' @author Jason Vander Woude
+viterbi <- function(probs, dists, prefs) {
     nstates <- nstates(probs)
-    trellis <- prefs$markov.order + 2  # viterbi trellis size
+    path.size <- nsites(probs)
     
-    ret.val <- list()
-    class(ret.val) <- "path"
-    ret.val$call <- rep(NA, nsites)
-    ret.val$post.prob <- matrix(NA, nrow = nsites, ncol = nstates)  # todo
+    paths.tracker <- matrix(NA, nrow=nstates, ncol=path.size)
+    probs.tracker <- probs[j, ]  # initialize probabilities
+
+    ## hard code the first column to the vector 1,2,...,nstates
+    ## this is what the generatePath function will need
+    paths.tracker[, 1] <- 1:nstates
     
-    if (nsites < min.markers) {  # too few markers are present
-        return ret.val  # return a path of NA's
-    } else {  # there are sufficient markers for imputation
-        ## Impute the first genotype
-        
-        for (i in 1:nsites) {  
-            current.trellis <- min(trellis, )  # TODO(Jason): look into this
-            current.path <- rep(nstates, current.trellis -
-                                         1)  # last path so inc to first
-
-            best.path <- current.path  # keep track of best path so far
-            best.prob <- 0  # keep track of highest probability
-            
-            while (TRUE) {
-                current.path <- increment(current.path)  # next path to check
-                last.value <- ret.val[i-1]  # previous imputed site
-
-                if (all(current.path == nstates)) {  # this is the last
-                    break  # exit the while loop
-                }
-            }            
-        }
-    }
-}
-
-
-# http://homepages.ulb.ac.be/~dgonze/TEACHING/viterbi.pdf
-viterbiFunction <- function(probs, dists, nstates, path.size, prefs) {
-    old.partial.paths <- matrix(NA, nrow=path.size, ncol=nstates)
-    old.partial.probs <- rep(1, nstates)
-
-    new.partial.paths <- old.partial.paths
-    new.partial.probs <- old.partial.probs
-
-    ## Initialize the first states based on emission probabilities
-    ## TODO(Jason): decide if the initialization should just be equal
-    ## probibilities which are determined by a default or a quick check of how
-    ## likely a heterozygous call and homozygous call are
-    for (j in 1:nstates) {
-        old.partial.paths[1, j] <- probs[1, j]
-    }
-    
-    for (i in 2:path.size) {  # for each site in the path
+    for (site in 2:path.size) {  # for each site in the path
         dist <- dists[i - 1]
-        next.paths <- lapply(1:nstates) function(j) {  # for each possible ending state at the site
-            ## find the probability of each existing path ending at state j
-            extension.probs <- sapply(1:nstates, function(state) {
-                ## multiply prob of prev state and transition prob to state j
-                partial.probs[state] *
-                    transProb(partial.paths[i, state], j, dist, prefs)
+        ## for each possible hidden state at this site
+        probs.tracker <- sapply(1:nstates, function(state) {
+            extension.probs <- sapply(1:nstates, function(i) {
+                ## Probability of being at state i before and transitioning to
+                ## the 'state' state
+                probs.tracker[i] * transProb(i, state, dist, prefs)
             })
-
-            best.prob <- max(extension.probs)
-            best.path <- which.max(extension.probs)
-
-            ## return the best path with state j appended
-            ## also append the probability (it will be immediately stripped off)
-            c(partial.paths[1:(i - 1), best.path], j, best.prob)
-
-
-
-
-            
-            ## TODO(Jason): move best.path to higher scope for efficiency
-            best.path <- NA
-            best.prob <- -1  # every path will be better than this
-            for (k in 1:nstates) {  # try extending each existing partial path
-                prev.state <- old.partial.paths[i, k]
-                current.prob <- old.partial.probs[k] *
-                    transProb(j, prev.state, dist, prefs)
-                if (current.prob > best.prob) {
-                    best.path <- k
-                    best.prob <- current.prob * probs[i, j]
-                }
-            }
-            
-        }
+            ## which partial path has the highest probability of moving to state
+            ## 'state'
+            paths.tracker[state, site] <- which.max(extension.probs)
+            max(extension.probs) * probs[site, state]  # return new probability
+        })
     }
+
+    generatePath(path.tracker, which.max(probs.tracker))  # return best path
 }
 
-
-transProb <- function(a, b, dists, prefs) {
+##' Find the transission probability between hidden states
+##'
+##' Use the equations specified in the LB-Impute paper to compute the
+##'     transmission probability between two sites
+##' @title 
+##' @param a first site
+##' @param b second site
+##' @param dist the distance between sites a and b
+##' @param prefs a preferences object
+##' @return the transmission probability between these hidden states
+##' @author Jason Vander Woude
+transProb <- function(a, b, dist, prefs) {
     if (a == b) {
         ## If there is no recombination
         0.5 * (1 + exp(-dist/prefs$recomb.dist))
@@ -130,6 +115,17 @@ transProb <- function(a, b, dists, prefs) {
 }
 
 
+##' Increment a vector as if it were the digits of a number
+##'
+##' Given a vector, try to increment the last index by 1 unless that would cause
+##'     it to be greater than max in which case the last index will be set to
+##'     min and the previous index incremented in this same manner.
+##' @title 
+##' @param x the vector
+##' @param max the maximum value that any element should have
+##' @param min the minimum value that any element should have
+##' @return the incremented vector
+##' @author Jason Vander Woude
 increment <- function(x, max, min = 1) {
     if (min >= max) {
         stop("max must be greater than min")
