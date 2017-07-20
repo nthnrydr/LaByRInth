@@ -11,7 +11,17 @@
 ###   $min.samples
 ###   $min.fraction
 ###   $min.markers
-###   $drp
+
+
+
+str.to.num <- function(str, sep) {
+    as.numeric(str.split(str, sep))
+}
+
+
+str.split <- function(str, sep) {
+    strsplit(str, sep)[[1]]
+}
 
 
 nsites.probs <- function(probs) {
@@ -21,6 +31,15 @@ nsites.probs <- function(probs) {
 
 nstates.probs <- function(probs) {
     ncol(probs)
+}
+
+## Used for creating a 3-D structure
+reorder <- function(x, n) {
+    as.vector(sapply(1:n, function(i) {
+        v <- rep(FALSE, n)
+        v[i] <- TRUE
+        x[v]
+    }))
 }
 
 
@@ -85,7 +104,6 @@ viterbi <- function(probs, dists, prefs) {
             max(extension.probs) * probs[site, state]  # return new probability
         })
     }
-
     generatePath(path.tracker, which.max(probs.tracker))  # return best path
 }
 
@@ -105,7 +123,7 @@ transProb <- function(a, b, dist, prefs) {
     if (a == b) {
         ## If there is no recombination
         0.5 * (1 + exp(-dist/prefs$recomb.dist))
-    } else if (a %in% 1:2 && b %in% 1:2 && !prefs$drp) {
+    } else if (a %in% 1:2 && b %in% 1:2 && !prefs$recomb.double) {
         ## Double recomb occurred and has square of probability of single recomb
         ## This only works for biparental
         (0.5 * (1 - exp(-dist/prefs$recomb.dist)))**2
@@ -151,6 +169,44 @@ Increment <- function(x, max, min = 1) {
 }
 
 
+VCF <- function(file, full=T) {
+    vcf <- list()
+    class(vcf) <- "vcf"
+    
+    vcf$variants <- readLines(file)
+    isComment <- sapply(variants, function(line){substr(line,1,1) == "#"})
+
+    vcf$headerLines <- variants[isComment]     #remove the header, but save so it can be restored later
+    vcf$variants <- vcf$variants[!isComment]
+    vcf$variants <- do.call(rbind, lapply(vcf$variants, function(line){str.split(line, "\t")}))  #make table
+
+    header <- vcf$headerLines[length(vcf$headerLines)]  #get column heading
+    header <- substr(header, 2, nchar(header)) #remove leading '#'
+    colnames(vcf$variants) <- strsplit(header, "\t")[[1]] #[[1]] is because strsplit returns a 1-element list
+    
+    formatExample <- vcf$variants[1, "FORMAT"]
+    field.names <- str.split(formatExample, ":")
+
+    ## The "FORMAT" column is the last one before the variants start
+    n.variants <- ncol(vcf$variants) - match("FORMAT", colnames(vcf$variants))
+    n.sites <- nrow(vcf$variants)
+    
+    ## TODO(Jason): make this more efficient
+    vcf$fields <- lapply(field.names, function(field.ID) {
+        ## Inside here I have a field string and want to compute the 3-D array
+        ## corresponding to that field
+        
+        ## how many in third dimension? try doing with predetermining
+        arr <- array(NA, dim=c(n.sites, n.variants, 
+    })
+}
+
+
+Get.vcf <- function(vcf, samples, chromosomes, field) {
+    
+}
+
+
 ## Rewrite of "public void getprobabilities2(List<String> variants, int sample)"
 ## from ImputeOffspring.java.  This calculates the emission probabilities for
 ## each state based on allelic depth of coverage (using binomial assumption).
@@ -170,7 +226,7 @@ Increment <- function(x, max, min = 1) {
 ##
 
 
-GetProbabilities <- function(variants, sample) {
+GetProbabilities <- function(variants, sample, prefs) {
     ## In a vcf file column 9 is the FORMAT column with colon separated values
     ## Retrieve an example from the FORMAT column to determine ordering
     format.example <- variants[1, "FORMAT"]
@@ -181,10 +237,10 @@ GetProbabilities <- function(variants, sample) {
     ## n.samples <- ncol(variants) - n.prefix.cols
     
     ## Determine which positions in the format and data fields mean what
-    genotype.index    <- match("GT", format.fields)  #GT = genotype
-    allele.read.index <- match("AD", format.fields)  #AD = allele depth
-    depth.index       <- match("DP", format.fields)  #DP = depth
-    readqual.index    <- match("GQ", format.fields)  #GQ = genotype read quality
+    genotype.index     <- match("GT", format.fields)  #GT = genotype
+    allele.count.index <- match("AD", format.fields)  #AD = allele count
+    depth.index        <- match("DP", format.fields)  #DP = depth
+    readqual.index     <- match("GQ", format.fields)  #GQ = genotype read quality
 
     states <- 3  # homozygous parent 1, homozygous parent 2, heterozygous
 
@@ -192,15 +248,69 @@ GetProbabilities <- function(variants, sample) {
 
     ret.val <- matrix(NA, nrow = nrow(variants), ncol = states)
 
+    ## From a single entry 
     GetProb <- function(entry) {
         ret.val <- NA
         if (entry == "./.") {
             ret.val <- rep(1, states)
         } else {
-            if (strsplit(entry, ":")[[1]][genotype.index] == "./.") {
+            info <- strsplit(entry, ":")[[1]]
+            if (info[genotype.index] == "./.") {
+                ret.val <- ret(1, states)
+            } else {
+                ## TODO(Jason): check this against the strange entries noted in
+                ## the notes file
+                genotype <- str.to.num(info[genotype.index], ",")
+                allele.count <- str.to.num(info[allele.count.index], ",")
+                ## 0 means reference by the vcf standards
+                ref.allele.indices <- which(allele.count == 0)
+                ## 1 means first alternate by the vcf standards
+                alt.allele.indices <- which(allele.count == 1)
+
+                ref.calls <- sum(allele.count[ref.allele.indices])
+                alt.calls <- sum(allele.count[alt.allele.indices])
+
+                ## Due so some strange entries in the vcf files it is possible
+                ## that both genotypes are the same number thus one of the
+                ## alleles will have no indices and summing over those NA
+                ## indices will yield NA's
+                if (is.na(ref.calls)) {
+                    ref.calls <- 0
+                }
+                if (is.na(alt.calls)) {
+                    alt.calls <- 0
+                }
+
+                rerr <- prefs$read.err
+                max.allowed <- 1 - (2 * prefs$genotype.err)
+                min.allowed <- prefs$genotype.err
                 
+                ## Calculate the emission probabilities for this site
+                ref.prob <- (1 - rerr)**ref.calls * (rerr)**alt.calls
+                alt.prob <- (1 - rerr)**alt.calls * (rerr)**ref.calls
+                hom.prob <- (0.5)**(ref.calls + alt.calls)  # homozygous
+
+                max.prob <- max(ref.prob, alt.prob, hom.prob)
+
+                normalize <- function(x) {
+                    x / max.prob * max.allowed + min.allowed
+                }
+                
+                ## TODO(Jason): Correction: max.allowed should be swapped with
+                ## (max.allowed - min.allowed)
+                for (state in 1:(states - 1)) {
+                    if (parent.map[k, state] == 0) {
+                        ret.val[state] = normalize(ref.prob)
+                    } else if (parent.map[k, state] == 1) {
+                        ret.val[state] = normalize(alt.prob)
+                    } else {
+                        ret.val[state] = normalize(max(alt.prob, ref.prob))
+                    }
+                }
+                ## TODO(Jason): code not finished here
             }
         }
+        ret.val  # implicit return
     }
     
     ## prob.path <- matrix(nrow = ncol(just.variants), ncol = states)  # initialized probability path matrix
@@ -210,8 +320,11 @@ GetProbabilities <- function(variants, sample) {
               sapply(variant, function(marker) {
                          marker.fields <- strsplit(marker, ":")[[1]]
                          if(marker.fields[genotype.check]=="./.") {
-                             prob.path[
-                     })
+                             prob.path[]
+                     }})
           })
           
     GenotExists(offspring$Genotype[, 1])
+
+}
+
