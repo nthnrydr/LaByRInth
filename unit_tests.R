@@ -39,8 +39,22 @@ entry <- "0/0:1,0:1:66:0,3,36"
 alphabet <- c("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l")
 reorder(alphabet, 3)
 array(reorder(alphabet, 3), dim=c(2,2,3))
-mat <- matrix(c("a:b:c", "d:e:f", "g:h:i", "j:k:l"), nrow=2)
+mat <- matrix(c("a|b|c", "d/e/f", "g/h|i", "j|k/l"), nrow=2)
 mat
-alphabet <- unlist(strsplit(mat, ":"))
+submat <- gsub("\\|", "/", mat)
+submat
+alphabet <- unlist(strsplit(submat, "/"))
 alphabet
 array(reorder(alphabet, 3), dim=c(2,2,3))
+
+
+
+
+## vcf
+vcfobj <- VCF(file="../LakinFuller_GBSv2_20170509.vcf")
+ResolveHomozygotes(vcfobj, test.prefs$parents)
+
+apply(genotype[1:15, , ], 1:2, function(alleles) {
+    
+
+}

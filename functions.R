@@ -42,6 +42,10 @@ reorder <- function(x, n) {
     }))
 }
 
+pad <- function(arr) {
+    
+}
+
 
 ##' Generate a path from a path tracker
 ##'
@@ -172,11 +176,12 @@ Increment <- function(x, max, min = 1) {
 VCF <- function(file, full=T) {
     vcf <- list()
     class(vcf) <- "vcf"
-    
-    vcf$variants <- readLines(file)
-    isComment <- sapply(variants, function(line){substr(line,1,1) == "#"})
 
-    vcf$headerLines <- variants[isComment]     #remove the header, but save so it can be restored later
+    writeLines("Reading vcf file")
+    vcf$variants <- readLines(file)
+    isComment <- sapply(vcf$variants, function(line){substr(line,1,1) == "#"})
+
+    vcf$headerLines <- vcf$variants[isComment]     #remove the header, but save so it can be restored later
     vcf$variants <- vcf$variants[!isComment]
     vcf$variants <- do.call(rbind, lapply(vcf$variants, function(line){str.split(line, "\t")}))  #make table
 
@@ -187,23 +192,98 @@ VCF <- function(file, full=T) {
     formatExample <- vcf$variants[1, "FORMAT"]
     field.names <- str.split(formatExample, ":")
 
+    ## Verify that required fields are in the VCF
+    required.fields <- c("GT", "AD")  # could also use GQ
+    if (!all(required.fields %in% field.names)) {
+        stop(paste("VCF file does not contain all required fields.",
+                   "Required fields are", toString(required.fields)))
+    }
+    field.indices <- match(required.fields, field.names)
+    names(field.indices) <- required.fields
+
     ## The "FORMAT" column is the last one before the variants start
-    n.variants <- ncol(vcf$variants) - match("FORMAT", colnames(vcf$variants))
+    format.col <- match("FORMAT", colnames(vcf$variants))
+    n.variants <- ncol(vcf$variants) - format.col
     n.sites <- nrow(vcf$variants)
+
+    samples <- vcf$variants[ , (format.col + 1):ncol(vcf$variants)]
+    rownames(samples) <- paste0(vcf$variants[, "CHROM"], ":", vcf$variants[, "POS"])
     
-    ## TODO(Jason): make this more efficient
-    vcf$fields <- lapply(field.names, function(field.ID) {
-        ## Inside here I have a field string and want to compute the 3-D array
-        ## corresponding to that field
-        
-        ## how many in third dimension? try doing with predetermining
-        arr <- array(NA, dim=c(n.sites, n.variants, 
+    vcf$variant.names <- colnames(samples)
+    vcf$chrom.names <- unique(vcf$variants[, "CHROM"])
+
+
+
+    
+    ## TODO(Jason): make sure that errors don't happend with '.' instead of
+    ## '3,4' or '1/2/3' the line "flat.mat <- ..." should be changed
+
+
+    ## GT section
+    writeLines("Converting genoytpe data")
+    mat <- apply(samples, 1:2, function(sample) {
+        str.split(sample, ":")[field.indices["GT"]]
     })
+    ## Replace '|' with '/' in genotype matrix
+    mat <- gsub("\\|", "/", mat)
+    ## introduce NA by conversion of .
+    flat.mat <- suppressWarnings(as.numeric(unlist(strsplit(mat, "/"))))
+    third.dim <- length(flat.mat) / n.sites / n.variants
+    vcf$GT <- array(reorder(flat.mat, third.dim), dim=c(n.sites,
+                                                        n.variants, third.dim))
+    colnames(vcf$GT) <- colnames(samples)
+    rownames(vcf$GT) <- rownames(samples)
+
+    
+    ## AD section
+    writeLines("Converting allelic depth data")
+    mat <- apply(samples, 1:2, function(sample) {
+        str.split(sample, ":")[field.indices["AD"]]
+    })
+    browser()
+    ## introduce NA by conversion of .
+    flat.mat <- suppressWarnings(as.numeric(unlist(strsplit(mat, ","))))
+    third.dim <- length(flat.mat) / n.sites / n.variants
+    vcf$AD <- array(reorder(flat.mat, third.dim), dim=c(n.sites,
+                                                        n.variants, third.dim))
+    colnames(vcf$AD) <- colnames(samples)
+    rownames(vcf$AD) <- rownames(samples)
+    
+    vcf  # implicit return
 }
 
 
-Get.vcf <- function(vcf, samples, chromosomes, field) {
-    
+Get <- function(x, ...) UseMethod("Get")
+Get.vcf <- function(vcf, field, samples, chromosomes) {
+    rows <- vcf$variants[, "CHROM"] %in% chromosomes
+    ## cols <- vcf$variant.names %in% samples
+    ## vcf[[field]][rows, cols, , drop=F]
+##    rows <- sapply(rownames(vcf[[field]]), str.split, ":")
+    vcf[[field]][rows, samples, , drop=F]
+}
+
+ResolveHomozygotes <- function(x, ...) UseMethod("ResolveHomozygotes")
+ResolveHomozygotes.vcf <- function(vcf, samples) {
+    genotype <- Get(vcf, "GT", samples, vcf$chrom.names)
+    allele.counts <- Get(vcf, "AD", samples, vcf$chrom.names)
+    ret.val <- genotype[, , 1]  # initilize to first slice in 3rd dim
+    for (r in 1:nrow(genotype)) {
+        for (c in 1:ncol(genotype)) {
+            alleles <- genotype[r, c, ]
+            
+            if (any(is.na(alleles))) {  # One of the alleles is NA
+                ret.val[r, c] <- NA
+            } else if (all(alleles == alleles[1])) {  # Check if all are same)
+                ret.val[r, c] <- alleles[1]
+            } else if (sum(allele.counts[r, c, ] != 0) == 1) {  # Only 1 counted
+                ret.val[r, c] <- alleles[as.logical(allele.counts[r, c, ])]
+            } else {  # Contradictory calls
+                ret.val[r, c] <- NA
+            }
+        }
+    }
+    browser()
+    ret.val  # implicit return
 }
 
 
