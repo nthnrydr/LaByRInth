@@ -174,6 +174,9 @@ Increment <- function(x, max, min = 1) {
 
 
 VCF <- function(file, full=T) {
+    ## TODO(Jason): add filtering step to remove non-biallelic calls or talk to
+    ## Jesse about how those should be handled
+    
     vcf <- list()
     class(vcf) <- "vcf"
 
@@ -229,6 +232,9 @@ VCF <- function(file, full=T) {
     ## introduce NA by conversion of .
     flat.mat <- suppressWarnings(as.numeric(unlist(strsplit(mat, "/"))))
     third.dim <- length(flat.mat) / n.sites / n.variants
+    if (third.dim%%1 != 0) {
+        stop("Error reading genotypes. One of the sites is likely not biallelic.")
+    }
     vcf$GT <- array(reorder(flat.mat, third.dim), dim=c(n.sites,
                                                         n.variants, third.dim))
     colnames(vcf$GT) <- colnames(samples)
@@ -240,10 +246,17 @@ VCF <- function(file, full=T) {
     mat <- apply(samples, 1:2, function(sample) {
         str.split(sample, ":")[field.indices["AD"]]
     })
-    browser()
+    ## browser()
+    ## Code for biallelic check during browser() it is bad if it prints
+    ## something
+    ## dumby <- apply(mat, 1:2, function(x){if(length(str.split(x, ",")) != 2) {print(x)}})
+    
     ## introduce NA by conversion of .
     flat.mat <- suppressWarnings(as.numeric(unlist(strsplit(mat, ","))))
     third.dim <- length(flat.mat) / n.sites / n.variants
+    if (third.dim%%1 != 0) {
+        stop("Error reading allelic depths. One of the sites is likely not biallelic.")
+    }
     vcf$AD <- array(reorder(flat.mat, third.dim), dim=c(n.sites,
                                                         n.variants, third.dim))
     colnames(vcf$AD) <- colnames(samples)

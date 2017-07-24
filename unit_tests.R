@@ -52,9 +52,5 @@ array(reorder(alphabet, 3), dim=c(2,2,3))
 
 ## vcf
 vcfobj <- VCF(file="../LakinFuller_GBSv2_20170509.vcf")
-ResolveHomozygotes(vcfobj, test.prefs$parents)
+resolved.parents <- ResolveHomozygotes(vcfobj, test.prefs$parents)
 
-apply(genotype[1:15, , ], 1:2, function(alleles) {
-    
-
-}
