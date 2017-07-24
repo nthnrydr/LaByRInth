@@ -6,14 +6,14 @@ test.prefs$parents            <- c("LAKIN", "FULLER")
 test.prefs$resolve.conflicts  <- FALSE
 test.prefs$read.err           <- 0.05
 test.prefs$genotype.err       <- 0.05
-test.prefs$recomb.err <- 0.05
-test.prefs$recomb.dist <- 100000
-test.prefs$recomb.double <- FALSE
-test.prefs$window.size <- test.prefs$markov.order + 2
-test.prefs$min.samples <- prefs$window.size
-test.prefs$min.fraction <- NULL  # Don't remember what this is
-test.prefs$min.markers <- NULL # Don't remember what this is
-
+test.prefs$recomb.err         <- 0.05
+test.prefs$recomb.dist        <- 100000
+test.prefs$recomb.double      <- FALSE
+test.prefs$window.size        <- test.prefs$markov.order + 2
+test.prefs$min.samples        <- prefs$window.size
+test.prefs$min.fraction       <- NULL  # Don't remember what this is
+test.prefs$min.markers        <- NULL # Don't remember what this is
+test.prefs$states             <- 3
 
 
 
@@ -53,4 +53,6 @@ array(reorder(alphabet, 3), dim=c(2,2,3))
 ## vcf
 vcfobj <- VCF(file="../LakinFuller_GBSv2_20170509.vcf")
 resolved.parents <- ResolveHomozygotes(vcfobj, test.prefs$parents)
-
+parent.6b.depths <- Get(vcfobj, "AD", test.prefs$parents, "6B")
+lakin.6b.depths <- Get(vcfobj, "AD", "LAKIN", "6B")
+parent.map <- GetProbabilities(vcfobj, "LAKIN", resolved.parents, test.prefs)

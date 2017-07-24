@@ -1,4 +1,4 @@
-### impute.prefs
+### prefs
 ###   $markov.order
 ###   $parents
 ###   $resolve.conflicts
@@ -11,8 +11,15 @@
 ###   $min.samples
 ###   $min.fraction
 ###   $min.markers
+###   $states
 
-
+### vcf
+###   $variants
+###   $header.lines
+###   $variant.names
+###   $chrom.names
+###   $GT
+###   $AD
 
 str.to.num <- function(str, sep) {
     as.numeric(str.split(str, sep))
@@ -184,11 +191,11 @@ VCF <- function(file, full=T) {
     vcf$variants <- readLines(file)
     isComment <- sapply(vcf$variants, function(line){substr(line,1,1) == "#"})
 
-    vcf$headerLines <- vcf$variants[isComment]     #remove the header, but save so it can be restored later
+    vcf$header.lines <- vcf$variants[isComment]     #remove the header, but save so it can be restored later
     vcf$variants <- vcf$variants[!isComment]
     vcf$variants <- do.call(rbind, lapply(vcf$variants, function(line){str.split(line, "\t")}))  #make table
 
-    header <- vcf$headerLines[length(vcf$headerLines)]  #get column heading
+    header <- vcf$header.lines[length(vcf$header.lines)]  #get column heading
     header <- substr(header, 2, nchar(header)) #remove leading '#'
     colnames(vcf$variants) <- strsplit(header, "\t")[[1]] #[[1]] is because strsplit returns a 1-element list
     
@@ -266,8 +273,14 @@ VCF <- function(file, full=T) {
 }
 
 
-Get <- function(x, ...) UseMethod("Get")
-Get.vcf <- function(vcf, field, samples, chromosomes) {
+
+Get <- function(vcf, field, samples, chromosomes=NULL) {
+    if (! inherits(vcf, "vcf")) {
+        stop("vcf must be of class 'vcf'")
+    }
+    if (is.null(chromosomes)) {
+        chromosomes <- vcf$chrom.names
+    } 
     rows <- vcf$variants[, "CHROM"] %in% chromosomes
     ## cols <- vcf$variant.names %in% samples
     ## vcf[[field]][rows, cols, , drop=F]
@@ -275,9 +288,13 @@ Get.vcf <- function(vcf, field, samples, chromosomes) {
     vcf[[field]][rows, samples, , drop=F]
 }
 
-ResolveHomozygotes <- function(x, ...) UseMethod("ResolveHomozygotes")
-ResolveHomozygotes.vcf <- function(vcf, samples) {
-    genotype <- Get(vcf, "GT", samples, vcf$chrom.names)
+
+
+ResolveHomozygotes <- function(vcf, samples) {
+    if (! inherits(vcf, "vcf")) {
+        stop("vcf must be of class 'vcf'")
+    }
+    genotype <- Get(vcf, "GT", samples)
     allele.counts <- Get(vcf, "AD", samples, vcf$chrom.names)
     ret.val <- genotype[, , 1]  # initilize to first slice in 3rd dim
     for (r in 1:nrow(genotype)) {
@@ -295,7 +312,6 @@ ResolveHomozygotes.vcf <- function(vcf, samples) {
             }
         }
     }
-    browser()
     ret.val  # implicit return
 }
 
@@ -319,105 +335,83 @@ ResolveHomozygotes.vcf <- function(vcf, samples) {
 ##
 
 
-GetProbabilities <- function(variants, sample, prefs) {
-    ## In a vcf file column 9 is the FORMAT column with colon separated values
-    ## Retrieve an example from the FORMAT column to determine ordering
-    format.example <- variants[1, "FORMAT"]
-    ## [[1]] is because strsplit returns a 1-element list
-    format.fields <- strsplit(format.example, ":")[[1]] 
+GetProbabilities <- function(vcf, sample, parent.geno, prefs) {
+    if (! inherits(vcf, "vcf")) {
+        stop("vcf must be of class 'vcf'")
+    }
+    if (length(sample) != 1) {
+        stop("Length of sample must be 1")
+    }
 
-    ## n.prefix.cols <- match("FORMAT", colnames(variants))
-    ## n.samples <- ncol(variants) - n.prefix.cols
-    
-    ## Determine which positions in the format and data fields mean what
-    genotype.index     <- match("GT", format.fields)  #GT = genotype
-    allele.count.index <- match("AD", format.fields)  #AD = allele count
-    depth.index        <- match("DP", format.fields)  #DP = depth
-    readqual.index     <- match("GQ", format.fields)  #GQ = genotype read quality
+    gt <- Get(vcf, "GT", sample)
+    ad <- Get(vcf, "AD", sample)
 
-    states <- 3  # homozygous parent 1, homozygous parent 2, heterozygous
+    ret.val <- matrix(NA, nrow = nrow(gt), ncol = prefs$states)
 
-    sample.variant <- variants[, sample]  # just the column associated
+    for (row in 1:nrow(ret.val)) {
+           
+        ## the '1' in [i, 1, ] is because there is only 1 sample
+        geno.calls <- gt[row, 1, ]
+        allele.counts <- ad[row, 1, ]
 
-    ret.val <- matrix(NA, nrow = nrow(variants), ncol = states)
-
-    ## From a single entry 
-    GetProb <- function(entry) {
-        ret.val <- NA
-        if (entry == "./.") {
-            ret.val <- rep(1, states)
+        if (all(is.na(geno.calls))) {
+            ret.val[row, ] <- rep(1, prefs$states)
         } else {
-            info <- strsplit(entry, ":")[[1]]
-            if (info[genotype.index] == "./.") {
-                ret.val <- ret(1, states)
-            } else {
-                ## TODO(Jason): check this against the strange entries noted in
-                ## the notes file
-                genotype <- str.to.num(info[genotype.index], ",")
-                allele.count <- str.to.num(info[allele.count.index], ",")
-                ## 0 means reference by the vcf standards
-                ref.allele.indices <- which(allele.count == 0)
-                ## 1 means first alternate by the vcf standards
-                alt.allele.indices <- which(allele.count == 1)
+            ## TODO(Jason): check this against the strange entries noted in
+            ## the notes file
 
-                ref.calls <- sum(allele.count[ref.allele.indices])
-                alt.calls <- sum(allele.count[alt.allele.indices])
+            ## 0 means reference by the vcf standards
+            ref.indices <- which(geno.calls == 0)
+            ## 1 means first alternate by the vcf standards
+            alt.indices <- which(geno.calls == 1)
 
-                ## Due so some strange entries in the vcf files it is possible
-                ## that both genotypes are the same number thus one of the
-                ## alleles will have no indices and summing over those NA
-                ## indices will yield NA's
-                if (is.na(ref.calls)) {
-                    ref.calls <- 0
-                }
-                if (is.na(alt.calls)) {
-                    alt.calls <- 0
-                }
+            ref.calls <- sum(allele.counts[ref.indices])
+            alt.calls <- sum(allele.counts[alt.indices])
 
-                rerr <- prefs$read.err
-                max.allowed <- 1 - (2 * prefs$genotype.err)
-                min.allowed <- prefs$genotype.err
-                
-                ## Calculate the emission probabilities for this site
-                ref.prob <- (1 - rerr)**ref.calls * (rerr)**alt.calls
-                alt.prob <- (1 - rerr)**alt.calls * (rerr)**ref.calls
-                hom.prob <- (0.5)**(ref.calls + alt.calls)  # homozygous
+            ## Due some to strange entries in the vcf files it is possible
+            ## that both genotypes are the same number thus one of the
+            ## alleles will have no indices and summing over those NA
+            ## indices will yield NA's
+            if (is.na(ref.calls)) {
+                ref.calls <- 0
+            }
+            if (is.na(alt.calls)) {
+                alt.calls <- 0
+            }
 
-                max.prob <- max(ref.prob, alt.prob, hom.prob)
+            max.allowed <- 1 - (2 * prefs$genotype.err)
+            min.allowed <- prefs$genotype.err
+            
+            ## Calculate the emission probabilities for this site
+            rerr <- prefs$read.err
+            ref.prob <- (1 - rerr)**ref.calls * (rerr)**alt.calls
+            alt.prob <- (1 - rerr)**alt.calls * (rerr)**ref.calls
+            hom.prob <- (0.5)**(ref.calls + alt.calls)  # homozygous
 
-                normalize <- function(x) {
-                    x / max.prob * max.allowed + min.allowed
-                }
-                
+            max.prob <- max(ref.prob, alt.prob, hom.prob)
+
+            normalize <- function(x) {
                 ## TODO(Jason): Correction: max.allowed should be swapped with
                 ## (max.allowed - min.allowed)
-                for (state in 1:(states - 1)) {
-                    if (parent.map[k, state] == 0) {
-                        ret.val[state] = normalize(ref.prob)
-                    } else if (parent.map[k, state] == 1) {
-                        ret.val[state] = normalize(alt.prob)
-                    } else {
-                        ret.val[state] = normalize(max(alt.prob, ref.prob))
-                    }
-                }
-                ## TODO(Jason): code not finished here
+                x / max.prob * max.allowed + min.allowed
             }
-        }
-        ret.val  # implicit return
-    }
-    
-    ## prob.path <- matrix(nrow = ncol(just.variants), ncol = states)  # initialized probability path matrix
-    
-    ## Begin the 
-    apply(, 2, function(variant) {
-              sapply(variant, function(marker) {
-                         marker.fields <- strsplit(marker, ":")[[1]]
-                         if(marker.fields[genotype.check]=="./.") {
-                             prob.path[]
-                     }})
-          })
-          
-    GenotExists(offspring$Genotype[, 1])
 
+            ## Assumes biallelic TODO(Jason): make more general by creating
+            ## alt.prob on the fly for each alternate if the site is not biallelic?
+            for (state in 1:(prefs$states - 1)) {
+                if (is.na(parent.geno[row, state])) {
+                    ret.val[row, state] <- normalize(max(alt.prob, ref.prob))
+                } else if (parent.geno[row, state] == 0) {
+                    ret.val[row, state] <- normalize(ref.prob)
+                } else if (parent.geno[row, state] == 1) {
+                    ret.val[row, state] <- normalize(alt.prob)
+                } else {
+                    stop("Parental genotype was not NA, 0, or 1")
+                }
+            }
+            ret.val[row, prefs$states] <- normalize(hom.prob)
+        }
+    }
+    ret.val  # implicit return
 }
 
