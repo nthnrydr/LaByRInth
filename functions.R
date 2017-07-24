@@ -13,20 +13,17 @@
 ###   $min.markers
 ###   $states
 
-### vcf
-###   $variants
-###   $header.lines
-###   $variant.names
-###   $chrom.names
-###   $GT
-###   $AD
 
 str.to.num <- function(str, sep) {
     as.numeric(str.split(str, sep))
 }
 
 
+## More convenient strsplit if length of vector is 1
 str.split <- function(str, sep) {
+    if (length(str) != 1) {
+        warning("Only splitting the first element of the vector")
+    }
     strsplit(str, sep)[[1]]
 }
 
@@ -40,6 +37,7 @@ nstates.probs <- function(probs) {
     ncol(probs)
 }
 
+
 ## Used for creating a 3-D structure
 reorder <- function(x, n) {
     as.vector(sapply(1:n, function(i) {
@@ -47,10 +45,6 @@ reorder <- function(x, n) {
         v[i] <- TRUE
         x[v]
     }))
-}
-
-pad <- function(arr) {
-    
 }
 
 
@@ -180,7 +174,15 @@ Increment <- function(x, max, min = 1) {
 }
 
 
-VCF <- function(file, full=T) {
+##' Extract the information from a vcf file and save it as a vcf object
+##'
+##' The returned vcf object will have the following variants, header.lines,
+##'     variant.names, chrom.names, GT, AD.
+##' @title 
+##' @param file the path to the vcf file
+##' @return the vcf object created from the file
+##' @author Jason Vander Woude
+VCF <- function(file) {
     ## TODO(Jason): add filtering step to remove non-biallelic calls or talk to
     ## Jesse about how those should be handled
     
@@ -273,23 +275,44 @@ VCF <- function(file, full=T) {
 }
 
 
-
+##' Get a subset of the data from the vcf object
+##'
+##' Get data pertaining to the speficied field and subset it by samples and
+##'     chromosomes.
+##' @title 
+##' @param vcf an object of class vcf
+##' @param field the name of a single field ("GT" or "AD")
+##' @param samples a vector of indices or names of variants
+##' @param chromosomes a vector of chromosome names to subset by
+##' @return a 3-dimensional array representing the subset of the data
+##' @author Jason Vander Woude
 Get <- function(vcf, field, samples, chromosomes=NULL) {
     if (! inherits(vcf, "vcf")) {
         stop("vcf must be of class 'vcf'")
     }
+    if (length(field) != 1) {
+        stop("Lenght of field must be 1")
+    } 
     if (is.null(chromosomes)) {
         chromosomes <- vcf$chrom.names
     } 
     rows <- vcf$variants[, "CHROM"] %in% chromosomes
-    ## cols <- vcf$variant.names %in% samples
-    ## vcf[[field]][rows, cols, , drop=F]
-##    rows <- sapply(rownames(vcf[[field]]), str.split, ":")
     vcf[[field]][rows, samples, , drop=F]
 }
 
 
-
+##' Resolve heterozygous sites in the samples
+##'
+##' Returns a matrix of genotype calls for the samples such that the entry is 0
+##'     if all calls were for the reference allele; 1 if all calls were for the
+##'     alternate allele; and NA if there were calls for both the reference and
+##'     alternate allele.
+##' @title
+##' @param vcf an object of class vcf
+##' @param samples a vector of indices or names of variants
+##' @param prefs a preferences object
+##' @return a matrix of genotypes (0, 1, NA)
+##' @author Jason Vander Woude
 ResolveHomozygotes <- function(vcf, samples) {
     if (! inherits(vcf, "vcf")) {
         stop("vcf must be of class 'vcf'")
@@ -316,25 +339,18 @@ ResolveHomozygotes <- function(vcf, samples) {
 }
 
 
-## Rewrite of "public void getprobabilities2(List<String> variants, int sample)"
-## from ImputeOffspring.java.  This calculates the emission probabilities for
-## each state based on allelic depth of coverage (using binomial assumption).
-
-## Incoming Variables:
-
-## formatExample <- strsplit(variants[1], "\t")[9]
-
-
-## offspring <- a 
-## num.variants <- the amount of variants (offspring).  Also length of vcf rows
-## minus identifiers
-## num.markers <- the amount of markers in the chromosome of a variant.  Also
-## length of vcf columns
-## genot.exists <- boolean vector of length num.markers of whether the genotype call (?/?)
-## is empty (./.) and if it is empty, genotypeboolean = F.
-##
-
-
+##' Get matrix of emission probabilities
+##'
+##' Computes the emission probabilities for each state based on allelic depth of
+##'     coverage (using the binomial assumption). Sample must be of length 1 and
+##'     the entries of the parent.geno matrix must be either 0, 1, or NA.
+##' @title
+##' @param vcf an object of class vcf
+##' @param sample an index or name of a variant
+##' @param parent.geno a matrix of parental genotypes
+##' @param prefs a preferences object
+##' @return a matrix of posterior probabilities
+##' @author Jason Vander Woude
 GetProbabilities <- function(vcf, sample, parent.geno, prefs) {
     if (! inherits(vcf, "vcf")) {
         stop("vcf must be of class 'vcf'")
@@ -414,4 +430,3 @@ GetProbabilities <- function(vcf, sample, parent.geno, prefs) {
     }
     ret.val  # implicit return
 }
-
