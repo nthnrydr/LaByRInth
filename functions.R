@@ -286,15 +286,12 @@ VCF <- function(file) {
 ##' @param chromosomes a vector of chromosome names to subset by
 ##' @return a 3-dimensional array representing the subset of the data
 ##' @author Jason Vander Woude
-Get <- function(vcf, field, samples, chromosomes=NULL) {
+Get <- function(vcf, field, samples, chromosomes) {
     if (! inherits(vcf, "vcf")) {
         stop("vcf must be of class 'vcf'")
     }
     if (length(field) != 1) {
-        stop("Lenght of field must be 1")
-    } 
-    if (is.null(chromosomes)) {
-        chromosomes <- vcf$chrom.names
+        stop("Length of field must be 1")
     } 
     rows <- vcf$variants[, "CHROM"] %in% chromosomes
     vcf[[field]][rows, samples, , drop=F]
@@ -351,16 +348,20 @@ ResolveHomozygotes <- function(vcf, samples) {
 ##' @param prefs a preferences object
 ##' @return a matrix of posterior probabilities
 ##' @author Jason Vander Woude
-GetProbabilities <- function(vcf, sample, parent.geno, prefs) {
+GetProbabilities <- function(vcf, sample, chromosomes=NULL, parent.geno,
+                             prefs) {
     if (! inherits(vcf, "vcf")) {
         stop("vcf must be of class 'vcf'")
     }
     if (length(sample) != 1) {
         stop("Length of sample must be 1")
     }
-
-    gt <- Get(vcf, "GT", sample)
-    ad <- Get(vcf, "AD", sample)
+    if (is.null(chromosomes)) {
+        chromosomes <- vcf$chrom.names
+    } 
+    
+    gt <- Get(vcf, "GT", sample, chromosomes)
+    ad <- Get(vcf, "AD", sample, chromosomes)
 
     ret.val <- matrix(NA, nrow = nrow(gt), ncol = prefs$states)
 
@@ -372,6 +373,8 @@ GetProbabilities <- function(vcf, sample, parent.geno, prefs) {
 
         if (all(is.na(geno.calls))) {
             ret.val[row, ] <- rep(1, prefs$states)
+        } else if (any(is.na(geno.calls))) {
+            stop("Some but not all genotype calls are NA")
         } else {
             ## TODO(Jason): check this against the strange entries noted in
             ## the notes file
@@ -428,5 +431,170 @@ GetProbabilities <- function(vcf, sample, parent.geno, prefs) {
             ret.val[row, prefs$states] <- normalize(hom.prob)
         }
     }
+    class(ret.val) <- "emission.prob"
     ret.val  # implicit return
+}
+
+
+## Determine which rows are real calls
+GetRelevantProbabiltiesIndex <- function(emission.prob) {
+    if (!inherits(emission.prob, "emission.prob")) {
+        stop("emission.prob must be of class 'emission.prob'")
+    }
+    apply(emission.prob, 1, function(row) {
+        !all(row == 1)
+    })  # implicit return
+}
+
+
+MakeStateMap <- function(variants, sample, probpath) {
+    collapsebool <- apply(variants, 1, function(row){! all(is.na(row))}) #vector indicating which rows should be kept
+    collapseboolverify <- apply(variants, 1, function(row){! any(is.na(row))}) #vector indicating which rows should be kept
+
+    if (! all(collapsebool == collapseboolverify)) {
+        stop("Incorrect assignments have been made to this probpath") #in theory this should never happen
+    }
+
+    if (sum(collapsebool) > 0) {        #if there are kept sites (in this chromosome) for this sample/variant
+        keptpositions <- variants["POS"][collapsebool] #positions of sites with a real read
+        ## vcf format specifies that chromosomes must be in order I think
+        distances <- diff(keptpositions) #compute the distance between sequential positions
+        
+    }
+}
+
+## 
+## TODO(Jason): For displaying output progress maybe do it something like this:
+##
+## LaByRInth (https://github.com/Dordt-/LaByRInth.git)
+##   Imputing NN variants at MM chromosomes
+##   XX imputations will run (NN x MM)
+##
+##   | #    | CHROM     | VARIANT       |
+##   +------+-----------+---------------+
+##   | 1    | A2        | U202-178      |
+##   | 2    | B2        | U202-079      |
+##   | 3    | C1        | U202-104      |
+##   | 4    | D5        | U202-001      |
+##   ...
+##
+## Use clojure so that a function will generate a function which
+## prints in the correct manner. Make sure flushin occurs with every
+## print and if possible use a mutex/semaphor to keep things in order
+## and only having one thing print at a time
+
+
+LabyrinthImpute <- function(file, parents) {
+    prefs <- InitializePreferences()
+    prefs$parents <- parents
+
+    LabyrinthImputeHelper(VCF(file), prefs)
+}
+
+
+LabyrinthImputeHelper <- function(vcf, prefs) {
+    if (!inherits(vcf, "vcf")) {
+        stop("vcf must be of class 'vcf'")
+    }
+    if (!inherits(prefs, "prefs")) {
+        stop("prefs must be of class 'prefs'")
+    }
+
+    chroms <- vcf$chrom.names
+    variants <- vcf$variant.names
+    parent.geno <- ResolveHomozygotes(vcf, prefs$parents)
+    
+    call.matrix <- as.matrix(
+        do.call(cbind, lapply(
+            variants, function(variant) {
+                LabyrinthImputeSample(vcf, variant, parent.geno, prefs)
+            })))
+                                  
+    ## TODO(Jason): turn calls back into text
+}
+
+
+LabyrinthImputeSample <- function(vcf, sample, parent.geno, prefs) {
+    chroms <- vcf$chrom.names
+
+    call.matrix <- as.matrix(
+        do.call(rbind, lapply(
+            chroms, function(chrom) {
+                LabyrinthImputeChrom(vcf, sample, chrom, parent.geno, prefs)
+            })))
+}
+
+
+LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
+
+    emission.probs <- GetProbabilities(vcf, sample, chrom, parent.geno, prefs)
+    
+    ## rownames of emission might be positions???
+    site.pos <- sapply(rownames(emission.probs, function(name) {
+        as.numeric(str.split(name, ":")[2])
+    }))
+
+    relevant.sites <- GetRelevantProbabiltiesIndex(emission.probs)
+    
+    ## distances between relevant sites
+    dists <- diff(site.pos[relevant.sites])
+    
+    path <- viterbi(emission.probs[relevant.sites, ], dists, prefs)
+    full.path <- relevant.sites
+
+    path.index <- 1
+    ## The missing calls that were not relevant will be filled back in
+    ## to create the full path from the 
+    for (i in seq_along(relevant.sites)) {
+        if (relevant.sites[i]) {  # if the site was relevant
+            relevant.sites[i] <- path[path.index]  # set to next call
+            path.index <- path.index + 1  # increment call index
+        } else {
+            relevant.sites[i] <- NA
+        }
+    }
+    ## TODO(Jason): Fill in NA's between common calls???
+    full.path  # implicit return
+}
+
+
+InitializePreferences <- function() {
+    prefs <- list()
+    class(prefs)            <- "prefs"
+    
+    prefs$markov.order      <- 5                                       
+    prefs$parents           <- c("LAKIN", "FULLER")                 
+    prefs$resolve.conflicts <- FALSE                                
+    prefs$read.err          <- 0.05                                 
+    prefs$genotype.err      <- 0.05                                 
+    prefs$recomb.err        <- 0.05                                 
+    prefs$recomb.dist       <- 100000                               
+    prefs$recomb.double     <- FALSE                                
+    prefs$window.size       <- prefs$markov.order + 2          
+    prefs$min.samples       <- prefs$window.size                    
+    prefs$min.fraction      <- NULL  # Don't remember what this is  
+    prefs$min.markers       <- NULL # Don't remember what this is   
+    prefs$states            <- 3
+
+    prefs  # implicit return
+}
+
+
+ValidatePreferences <- function(prefs) {
+    if (!inhereits(prefs, "prefs")) {
+        stop("prefs must be of class 'prefs'")
+    }
+    if (length(parents) != 2) {
+        stop("exaclty 2 parents must be specified")
+    }
+    if (prefs$states != length(parents) + 1) {
+        stop("illegal number of states")
+    }
+    if (!is.logical(resolve.conflicts)) {
+        stop("resolve.conflicts must be of type logical")
+    }
+    if (!is.logical(recomb.double)) {
+        stop("recomb.double must be of type logical")
+    }
+    ## TODO
 }

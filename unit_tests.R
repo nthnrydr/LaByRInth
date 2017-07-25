@@ -13,7 +13,7 @@ test.prefs$window.size        <- test.prefs$markov.order + 2
 test.prefs$min.samples        <- prefs$window.size
 test.prefs$min.fraction       <- NULL  # Don't remember what this is
 test.prefs$min.markers        <- NULL # Don't remember what this is
-test.prefs$states             <- 3
+test.prefs$states             <- 3                                    
 
 
 
@@ -56,3 +56,8 @@ resolved.parents <- ResolveHomozygotes(vcfobj, test.prefs$parents)
 parent.6b.depths <- Get(vcfobj, "AD", test.prefs$parents, "6B")
 lakin.6b.depths <- Get(vcfobj, "AD", "LAKIN", "6B")
 parent.map <- GetProbabilities(vcfobj, "LAKIN", resolved.parents, test.prefs)
+
+
+
+## imputation logistics
+dummy <- LabyrinthImpute(file="../LakinFuller_004.vcf", c("LAKIN","FULLER"))
