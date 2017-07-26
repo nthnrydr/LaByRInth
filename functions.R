@@ -474,85 +474,6 @@ GetRelevantProbabiltiesIndex <- function(emission.prob) {
 }
 
 
-MakeStateMap <- function(variants, sample, probpath) {
-    collapsebool <- apply(variants, 1, function(row){! all(is.na(row))}) #vector indicating which rows should be kept
-    collapseboolverify <- apply(variants, 1, function(row){! any(is.na(row))}) #vector indicating which rows should be kept
-
-    if (! all(collapsebool == collapseboolverify)) {
-        stop("Incorrect assignments have been made to this probpath") #in theory this should never happen
-    }
-
-    if (sum(collapsebool) > 0) {        #if there are kept sites (in this chromosome) for this sample/variant
-        keptpositions <- variants["POS"][collapsebool] #positions of sites with a real read
-        ## vcf format specifies that chromosomes must be in order I think
-        distances <- diff(keptpositions) #compute the distance between sequential positions
-        
-    }
-}
-
-## 
-## TODO(Jason): For displaying output progress maybe do it something like this:
-##
-## LaByRInth (https://github.com/Dordt-/LaByRInth.git)
-##   Imputing NN variants at MM chromosomes (SS total sites)
-##   XX imputations will run (NN x MM)
-##
-##   +------+-----------+---------------+
-##   | #    | CHROM     | VARIANT       |
-##   +------+-----------+---------------+
-##   | 1    | A2        | U202-178      |
-##   | 2    | B2        | U202-079      |
-##   | 3    | C1        | U202-104      |
-##   | 4    | D5        | U202-001      |
-##   | .    |  .        |    .          |
-##   | .    |  .        |    .          |
-##   | .    |  .        |    .          |
-##   | 4    | D5        | U202-001      |
-##   +------+-----------+---------------+
-##
-##   LaByRInth completed (Y:MM:DD:HH:MM:SS)
-##
-## Use clojure so that a function will generate a function which
-## prints in the correct manner. Make sure flushin occurs with every
-## print and if possible use a mutex/semaphor to keep things in order
-## and only having one thing print at a time
-
-
-PrintBar <- function(colwidths, leading="") {
-    line <- c(leading,
-              "+-", rep("-", colwidths[1]),
-              "-+-", rep("-", colwidths[2]),
-              "-+-", rep("-", colwidths[3]),
-              "-+")
-    line <- paste0(line, collapse="")
-    writeLines(line)
-}
-
-
-PrintHeader <- function(colwidths, leading="") {
-    line <- c(leading,
-              "| ", format(" #", width=colwidths[1]),
-              " | ", format(" CHROM", width=colwidths[2]),
-              " | ", format(" VARIANT", width=colwidths[3]),
-              " |")
-    line <- paste0(line, collapse="")
-    PrintBar(colwidths, leading)
-    writeLines(line)
-    PrintBar(colwidths, leading)
-}
-
-
-PrintLine <- function(entries, colwidths, leading="") {
-    line <- c(leading,
-              "| ", format(entries[1], width=colwidths[1]),
-              " | ", format(entries[2],  width=colwidths[2]),
-              " | ", format(entries[3], width=colwidths[3]),
-              " |")
-    line <- paste0(line, collapse="")
-    writeLines(line)
-}
-
-
 LabyrinthImpute <- function(file, parents) {
     prefs <- InitializePreferences()
     prefs$parents <- parents
@@ -610,43 +531,62 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
     n.chrom <- length(chroms)
     n.variants <- length(variants)
     n.sites <- nrow(parent.geno)
+    n.jobs <- n.variants * n.chrom
 
-    header <- c("INDEX", "CHROM", "VARIANT")
-    prefs$colwidths <- c()
-    prefs$leading <- "      "
-    prefs$NextInd <- IndexIncrementFun()  # Clojure to get next index
-    
-    prefs$colwidths[1] <- max(nchar(n.chrom * n.variants), nchar(header[1]))
-    prefs$colwidths[2] <- max(nchar(chroms), nchar(header[2]))
-    prefs$colwidths[3] <- max(nchar(variants), nchar(header[3]))
-    
-    
     writeLines("\n* LaByRInth (https://github.com/Dordt-/LaByRInth.git *\n")
-    writeLines(paste0(prefs$leading,
-                      "Imputing ",
+    writeLines(paste0("    Imputing ",
                       n.variants, " variants at ",
                       n.chrom, " chromosomes (",
                       n.sites, " sites)"))
-    writeLines(paste0(prefs$leading, n.variants * n.chrom,
+    writeLines(paste0("    ", n.jobs,
                       " imputations will run (",
-                      n.variants, " x ", n.chrom, ")\n"))
-    PrintBar(prefs$colwidths, prefs$leading)
-    PrintLine(header, prefs$colwidths, prefs$leading)
-    PrintBar(prefs$colwidths, prefs$leading)
+                      n.variants, " x ", n.chrom, ")"))
+
+    ## Code from https://stackoverflow.com/questions/27726134/
+    ## how-to-track-progress-in-mclapply-in-r-in-parallel-package
+    ##    progress.env <- new.env()
+
+##    result <- local({
+##    prefs$fifo <- ProgressMonitor()
     
     ## Actually run the imputation
-    result <- do.call(cbind,
-        prefs$lapply(
-            variants, function(variant) {
-                LabyrinthImputeSample(vcf, variant, parent.geno, prefs)
-            }))
 
+    result <- local({
+        f <- fifo(tempfile(), open="w+b", blocking=T)
+        if (inherits(parallel:::mcfork(), "masterProcess")) {
+            progress <- 0.0
+            while (progress < 1 && !isIncomplete(f)) {
+                msg <- readBin(f, "double")
+                progress <- progress + as.numeric(msg)
+                cat(sprintf("    Progress: %.2f%%\r", progress * 100))
+            } 
+            parallel:::mcexit()
+        }
+        res <-
+            mclapply(
+                variants, function(variant) {
+                    do.call(c, lapply(chroms, function(chrom) {
+                        writeBin(1/n.jobs, f)
+                        LabyrinthImputeChrom(vcf, sample, chrom, parent.geno, prefs)
+                    }))
+                })
+
+        close(f)
+        res
+    })
+
+
+##    close(prefs$fifo)
+##    res
+##    })
+    
+    browser()
+    
     colnames(result) <- variants
     rownames(result) <- rownames(parent.geno)
 
-    PrintBar(prefs$colwidths, prefs$leading)
     runtime <- as.numeric(Sys.time() - startTime)
-    writeLines(paste0("\n", prefs$leading, "LaByRInth complete (", runtime, " sec)\n"))
+    writeLines(paste0("    Completed in ", ceiling(runtime), " seconds\n"))
     
     result  # implicit return
                                   
@@ -659,6 +599,7 @@ LabyrinthImputeSample <- function(vcf, sample, parent.geno, prefs) {
 
     do.call(c, lapply(chroms, function(chrom) {
         LabyrinthImputeChrom(vcf, sample, chrom, parent.geno, prefs)
+        writeBin(1/prefs$n.jobs, prefs$fifo)
     }))
 }
 
@@ -715,10 +656,6 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
         }        
     }
 
-    if (!prefs$quiet) {
-        PrintLine(c(prefs$NextInd(), chrom, sample), prefs$colwidths, prefs$leading)
-    }
-
     ## At this stage full.path has entries of 1, 2, 3, or NA which indicates
     ## respectively if a site is homozygous parent 1, homozygous parent 2,
     ## heterozygous, or unknown. Now the entries will be converted to 0
@@ -770,6 +707,16 @@ ValidatePreferences <- function(prefs) {
 }
 
 
-f <- function() {
-    print(parallel:::mcfork())
+ProgressMonitor <- function() {
+    f <- fifo(tempfile(), open="w+b", blocking=T)
+    if (inherits(parallel:::mcfork(), "masterProcess")) {
+        progress <- 0.0
+        while (progress < 1 && !isIncomplete(f)) {
+            msg <- readBin(f, "double")
+            progress <- progress + as.numeric(msg)
+            cat(sprintf("    Progress: %.2f%%\r", progress * 100))
+        } 
+        parallel:::mcexit()
+    }
+    f  # implicit return
 }

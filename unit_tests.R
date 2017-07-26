@@ -97,7 +97,7 @@ test.sample <- LabyrinthImputeSample(vcf.obj, sample, parent.geno, test.prefs)j
 prefs$parallel <- TRUE
 prefs$cores <- 4
 prefs$quiet <- TRUE
-test.impute <- LabyrinthImputeHelper(vcf.obj.big, prefs)
+test.impute <- LabyrinthImputeHelper(vcf.obj, prefs)
 ## test.impute <- LabyrinthImpute(vcf.file.big, c("LAKIN", "FULLER"))
 
 ## dummy <- LabyrinthImpute(file="../LakinFuller_004.vcf", c("LAKIN","FULLER"))
@@ -127,29 +127,11 @@ finalResult <- local({
   result
 })
 
-dispmclapply <- function(X, FUN, ..., mc.preschedule = TRUE, mc.set.seed = TRUE, 
-                            mc.silent = FALSE, mc.cores = getOption("mc.cores", 2L),
-                            mc.cleanup = TRUE, mc.allow.recursive = TRUE) {
-    local({
-        f <- fifo(tempfile(), open="w+b", blocking=T)
-        if (inherits(parallel:::mcfork(), "masterProcess")) {
-            progress <- 0.0
-            while (progress < 1 && !isIncomplete(f)) {
-                msg <- readBin(f, "double")
-                progress <- progress + as.numeric(msg)
-                cat(sprintf("Progress: %.2f%%\n", progress * 100))
-            } 
-            parallel:::mcexit()
-        }
-        result <- mclapply(X, function(...) {
-                                        # Do something fancy here... For this example, just sleep
-            Sys.sleep(0.05)
-                                        # Send progress update
-            writeBin(1/numJobs, f)
-                                        # Some arbitrary result
-            sample(1000, 1)
-        })
-        close(f)
-        result
-    })
-}
+
+
+
+fifo <- ProgressMonitor()
+writeBin(0.2, fifo)
+writeBin(0.4, fifo)
+writeBin(0.3, fifo)
+close(fifo)
