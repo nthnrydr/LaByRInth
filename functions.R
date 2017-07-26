@@ -84,32 +84,49 @@ generatePath <- function(path.tracker, index) {
 ##' @return the most probable sequence of states
 ##' @author Jason Vander Woude
 viterbi <- function(probs, dists, prefs) {
-    nstates <- nstates(probs)
-    path.size <- nsites(probs)
+    nstates <- nstates.probs(probs)
+    path.size <- nsites.probs(probs)
     
     paths.tracker <- matrix(NA, nrow=nstates, ncol=path.size)
-    probs.tracker <- probs[j, ]  # initialize probabilities
+    ## TODO(Jason): make sure this is right. Changed an invalid index j to 1 on
+    ## July 26
 
+    ## This will keep track of the overall probabilites of each of the {nstates}
+    ## final paths, so that the probability of the final paths do not have to be
+    ## computed again. The probabilities are initialized to the emission
+    ## probabilities of the first site of the probs matrix which is the first row
+    probs.tracker <- probs[1, ]
+                                 
     ## hard code the first column to the vector 1,2,...,nstates
     ## this is what the generatePath function will need
     paths.tracker[, 1] <- 1:nstates
     
     for (site in 2:path.size) {  # for each site in the path
-        dist <- dists[i - 1]
+        
+        dist <- dists[site - 1]
+        
         ## for each possible hidden state at this site
         probs.tracker <- sapply(1:nstates, function(state) {
+            
             extension.probs <- sapply(1:nstates, function(i) {
                 ## Probability of being at state i before and transitioning to
                 ## the 'state' state
                 probs.tracker[i] * transProb(i, state, dist, prefs)
             })
+            
             ## which partial path has the highest probability of moving to state
             ## 'state'
-            paths.tracker[state, site] <- which.max(extension.probs)
+            paths.tracker[state, site] <<- which.max(extension.probs)
             max(extension.probs) * probs[site, state]  # return new probability
         })
     }
-    generatePath(path.tracker, which.max(probs.tracker))  # return best path
+
+    ## The code above has already computed the optimal path, but that
+    ## information is encoded within the paths.tracker matrix and needs to be
+    ## extracted. That is what generatePath will do when passed the path.tracker
+    ## matrix and the index of the optimal path.
+    browser()
+    generatePath(paths.tracker, which.max(probs.tracker))  # return best path
 }
 
 
@@ -286,12 +303,15 @@ VCF <- function(file) {
 ##' @param chromosomes a vector of chromosome names to subset by
 ##' @return a 3-dimensional array representing the subset of the data
 ##' @author Jason Vander Woude
-Get <- function(vcf, field, samples, chromosomes) {
+Get <- function(vcf, field, samples, chromosomes=NULL) {
     if (! inherits(vcf, "vcf")) {
         stop("vcf must be of class 'vcf'")
     }
     if (length(field) != 1) {
         stop("Length of field must be 1")
+    }
+    if (is.null(chromosomes)) {
+        chromosomes <- vcf$chrom.names
     } 
     rows <- vcf$variants[, "CHROM"] %in% chromosomes
     vcf[[field]][rows, samples, , drop=F]
@@ -348,23 +368,22 @@ ResolveHomozygotes <- function(vcf, samples) {
 ##' @param prefs a preferences object
 ##' @return a matrix of posterior probabilities
 ##' @author Jason Vander Woude
-GetProbabilities <- function(vcf, sample, chromosomes=NULL, parent.geno,
-                             prefs) {
+GetProbabilities <- function(vcf, sample, chromosomes, parent.geno, prefs) {
     if (! inherits(vcf, "vcf")) {
         stop("vcf must be of class 'vcf'")
     }
     if (length(sample) != 1) {
         stop("Length of sample must be 1")
     }
-    if (is.null(chromosomes)) {
-        chromosomes <- vcf$chrom.names
-    } 
     
     gt <- Get(vcf, "GT", sample, chromosomes)
     ad <- Get(vcf, "AD", sample, chromosomes)
 
     ret.val <- matrix(NA, nrow = nrow(gt), ncol = prefs$states)
-
+    rownames(ret.val) <- rownames(gt)
+    colnames(ret.val) <- c(colnames(parent.geno), "HETEROZYGOUS")
+    class(ret.val) <- "prob"
+             
     for (row in 1:nrow(ret.val)) {
            
         ## the '1' in [i, 1, ] is because there is only 1 sample
@@ -431,14 +450,14 @@ GetProbabilities <- function(vcf, sample, chromosomes=NULL, parent.geno,
             ret.val[row, prefs$states] <- normalize(hom.prob)
         }
     }
-    class(ret.val) <- "emission.prob"
+
     ret.val  # implicit return
 }
 
 
 ## Determine which rows are real calls
 GetRelevantProbabiltiesIndex <- function(emission.prob) {
-    if (!inherits(emission.prob, "emission.prob")) {
+    if (!inherits(emission.prob, "prob")) {
         stop("emission.prob must be of class 'emission.prob'")
     }
     apply(emission.prob, 1, function(row) {
@@ -527,19 +546,29 @@ LabyrinthImputeSample <- function(vcf, sample, parent.geno, prefs) {
 
 LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
 
+    if (length(sample) != 1) {
+        stop("Length of sample must be 1")
+    }
+    if (length(chrom) != 1) {
+        stop("Length of chrom must be 1")
+    }
+    
     emission.probs <- GetProbabilities(vcf, sample, chrom, parent.geno, prefs)
     
-    ## rownames of emission might be positions???
-    site.pos <- sapply(rownames(emission.probs, function(name) {
+    site.pos <- sapply(rownames(emission.probs), function(name) {
         as.numeric(str.split(name, ":")[2])
-    }))
+    })
 
     relevant.sites <- GetRelevantProbabiltiesIndex(emission.probs)
     
     ## distances between relevant sites
     dists <- diff(site.pos[relevant.sites])
+
+    relevant.probs <- emission.probs[relevant.sites, ]
+    class(relevant.probs) <- "probs"
     
-    path <- viterbi(emission.probs[relevant.sites, ], dists, prefs)
+    path <- viterbi(relevant.probs, dists, prefs)
+    browser()
     full.path <- relevant.sites
 
     path.index <- 1

@@ -60,4 +60,14 @@ parent.map <- GetProbabilities(vcfobj, "LAKIN", resolved.parents, test.prefs)
 
 
 ## imputation logistics
-dummy <- LabyrinthImpute(file="../LakinFuller_004.vcf", c("LAKIN","FULLER"))
+vcf.file <- "../LakinFuller_004.vcf"
+vcf.obj <- VCF(vcf.file)
+parent.geno <- ResolveHomozygotes(vcf.obj, test.prefs$parents)
+sample <- "U6202-080"
+chrom <- "1B"
+
+data <- Get(vcf.obj, "GT", sample, chrom)
+
+test.chrom.impute <- LabyrinthImputeChrom(vcf.obj, sample, chrom, parent.geno, test.prefs)
+
+## dummy <- LabyrinthImpute(file="../LakinFuller_004.vcf", c("LAKIN","FULLER"))
