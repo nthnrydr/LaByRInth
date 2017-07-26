@@ -475,6 +475,8 @@ GetRelevantProbabiltiesIndex <- function(emission.prob) {
 
 
 LabyrinthImpute <- function(file, parents) {
+    require(parallel)
+    
     prefs <- InitializePreferences()
     prefs$parents <- parents
 
@@ -531,75 +533,116 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
     n.chrom <- length(chroms)
     n.variants <- length(variants)
     n.sites <- nrow(parent.geno)
-    n.jobs <- n.variants * n.chrom
+    prefs$n.jobs <- n.variants * n.chrom
 
     writeLines("\n* LaByRInth (https://github.com/Dordt-/LaByRInth.git *\n")
     writeLines(paste0("    Imputing ",
                       n.variants, " variants at ",
                       n.chrom, " chromosomes (",
                       n.sites, " sites)"))
-    writeLines(paste0("    ", n.jobs,
+    writeLines(paste0("    ", prefs$n.jobs,
                       " imputations will run (",
                       n.variants, " x ", n.chrom, ")"))
 
     ## Code from https://stackoverflow.com/questions/27726134/
     ## how-to-track-progress-in-mclapply-in-r-in-parallel-package
-    ##    progress.env <- new.env()
-
-##    result <- local({
-##    prefs$fifo <- ProgressMonitor()
+    ## TODO(Jason): don't use prefs$fifo, but instead try to use a fifo variable
+    ## in the progress.env environment
+    progress.env <- new.env()
+    prefs$fifo <- ProgressMonitor(progress.env)
     
     ## Actually run the imputation
+    result <- do.call(cbind,
+        mclapply(
+            variants, function(variant) {
+                LabyrinthImputeSample(vcf, variant, parent.geno, prefs)
+            }))
 
-    result <- local({
-        f <- fifo(tempfile(), open="w+b", blocking=T)
-        if (inherits(parallel:::mcfork(), "masterProcess")) {
-            progress <- 0.0
-            while (progress < 1 && !isIncomplete(f)) {
-                msg <- readBin(f, "double")
-                progress <- progress + as.numeric(msg)
-                cat(sprintf("    Progress: %.2f%%\r", progress * 100))
-            } 
-            parallel:::mcexit()
-        }
-        res <-
-            mclapply(
-                variants, function(variant) {
-                    do.call(c, lapply(chroms, function(chrom) {
-                        writeBin(1/n.jobs, f)
-                        LabyrinthImputeChrom(vcf, sample, chrom, parent.geno, prefs)
-                    }))
-                })
+    close(prefs$fifo)
 
-        close(f)
-        res
-    })
-
-
-##    close(prefs$fifo)
-##    res
-##    })
-    
-    browser()
-    
     colnames(result) <- variants
     rownames(result) <- rownames(parent.geno)
+    
+    vcf.out <- paste0("../LaByRInth_", gsub("[ :]", "-", date()), "_.vcf")
+    print(vcf.out)
+
+    ## parent.geno <- apply(parent.geno, 1:2, function(elem) {
+    ##     if (is.na(elem)) {
+    ##         "."
+    ##     }
+    ## }
+    ## parent.geno <- cbind(parent.geno, parent.geno[, 1])
+    
+    ## Write imputations to
+    sink(vcf.out)
+    writeLines(paste(vcf$header[1], collapse="\n"))  # Add header
+
+    for (i in 1:n.sites) {
+        for (j in 1:n.variants) {
+            call <- result[i, j]
+            if (is.na(call)) {
+                text <- "./."
+            } else if (call %in% 1:2) {
+                ## TODO(Jason): Discuss what should be done here. Sometimes it
+                ## will impute and say that the site is from parent 1 even
+                ## though parent 1 is NA. Consider 1A:1159442 and U6202-088. It
+                ## was imputed to match LAKIN, but LAKIN is NA in the
+                ## parent.geno because LAKIN was called heterozygous
+                ## 1/0:3,7. But U6202-088 was called 1/1:0,5 suggesting that it
+                ## is pretty likely homozygous alternate. It seems like we
+                ## should be utilizing this information maybe like TIGER (see
+                ## LB-Impute paper) does. Let these calls show up in the output
+                ## file as NA's like is being done now to see how often they
+                ## occur. It seems like there is a lot of room for improvement
+                ## here. We will have to look at and understand the emission
+                ## probabilities better though. Is it valid to have sites that
+                ## look like ./1 to represent that we confidently know what one
+                ## of the two alleles is but not the other?
+                geno <- parent.geno[i, call]
+                text <- paste0(geno, "/", geno)
+            } else if (call == 3) {
+                text <- "0/1"
+            } else {
+                stop(paste("OOPS:", call))
+            }
+            if (text == "NA/NA") {
+                sink()
+                browser()
+            }
+            cat(text)
+            if (j != n.variants) {
+                cat("\t")
+            }
+        }
+        if (i != n.sites) {
+            cat("\n")
+        }
+    }
+    sink()
+    ## TODO(Jason): turn calls back into text
 
     runtime <- as.numeric(Sys.time() - startTime)
     writeLines(paste0("    Completed in ", ceiling(runtime), " seconds\n"))
-    
     result  # implicit return
-                                  
-    ## TODO(Jason): turn calls back into text
 }
 
 
 LabyrinthImputeSample <- function(vcf, sample, parent.geno, prefs) {
+    ## TODO(Jason): Talk to Tintle about why the imputation looks so bad when
+    ## imputing the parents. Shouldn't it be mostly correct? It is only about
+    ## 65% correct. Nevermind, the fact that there is no chance of a parent
+    ## being heterozygous is probably what the difference is since we cleaned
+    ## them up
+    if (sample %in% prefs$parents) {
+        return(rep(match(sample, prefs$parents), nrow(parent.geno)))
+    }
+    
     chroms <- vcf$chrom.names
 
     do.call(c, lapply(chroms, function(chrom) {
-        LabyrinthImputeChrom(vcf, sample, chrom, parent.geno, prefs)
+        result <- LabyrinthImputeChrom(vcf, sample, chrom, parent.geno, prefs)
         writeBin(1/prefs$n.jobs, prefs$fifo)
+        result  # implicit return
     }))
 }
 
@@ -707,16 +750,18 @@ ValidatePreferences <- function(prefs) {
 }
 
 
-ProgressMonitor <- function() {
-    f <- fifo(tempfile(), open="w+b", blocking=T)
-    if (inherits(parallel:::mcfork(), "masterProcess")) {
-        progress <- 0.0
-        while (progress < 1 && !isIncomplete(f)) {
-            msg <- readBin(f, "double")
-            progress <- progress + as.numeric(msg)
-            cat(sprintf("    Progress: %.2f%%\r", progress * 100))
-        } 
-        parallel:::mcexit()
-    }
-    f  # implicit return
+ProgressMonitor <- function(env) {
+    local({
+        f <- fifo(tempfile(), open="w+b", blocking=T)
+        if (inherits(parallel:::mcfork(), "masterProcess")) {
+            progress <- 0.0
+            while (progress < 1 && !isIncomplete(f)) {
+                msg <- readBin(f, "double")
+                progress <- progress + as.numeric(msg)
+                cat(sprintf("    Progress: %.2f%%\r", progress * 100))
+            } 
+            parallel:::mcexit()
+        }
+        f  # implicit return
+    }, envir=env)
 }
