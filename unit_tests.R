@@ -11,7 +11,29 @@ test.prefs$recomb.double      <- FALSE
 test.prefs$window.size        <- test.prefs$markov.order + 2
 test.prefs$min.fraction       <- NULL  # Don't remember what this is
 test.prefs$min.markers        <- 1
-test.prefs$states             <- 3                                    
+test.prefs$states             <- 3
+test.prefs$quiet              <- FALSE
+
+## prefs
+    prefs <- list()
+    class(prefs)            <- "prefs"
+
+    ## Algorithm parameters
+    prefs$parents           <- c("LAKIN", "FULLER")                 
+    prefs$resolve.conflicts <- FALSE                                
+    prefs$recomb.double     <- FALSE                                
+    prefs$read.err          <- 0.05                                 
+    prefs$genotype.err      <- 0.05                                 
+    prefs$recomb.err        <- 0.05                                 
+    prefs$recomb.dist       <- 100000                               
+    prefs$min.markers       <- 1
+    prefs$states            <- length(prefs$parents) + 1
+
+    ## Logistics
+    prefs$quiet             <- FALSE
+    prefs$cores             <- 4
+    prefs$parallel          <- FALSE
+## end prefs
 
 
 
@@ -59,7 +81,10 @@ parent.map <- GetProbabilities(vcfobj, "LAKIN", resolved.parents, test.prefs)
 
 ## imputation logistics
 vcf.file <- "../LakinFuller_004.vcf"
+vcf.file.big <- "../LakinFuller_001.vcf"
 vcf.obj <- VCF(vcf.file)
+vcf.obj.big <- VCF(vcf.file.big)
+
 parent.geno <- ResolveHomozygotes(vcf.obj, test.prefs$parents)
 sample <- "U6202-080"
 chrom <- "1B"
@@ -67,7 +92,64 @@ chrom <- "1B"
 data <- Get(vcf.obj, "GT", sample, chrom)
 
 test.chrom.impute <- LabyrinthImputeChrom(vcf.obj, sample, chrom, parent.geno, test.prefs)
-test.sample <- LabyrinthImputeSample(vcf.obj, sample, parent.geno, test.prefs)
-test.impute <- LabyrinthImputeHelper(vcf.obj, test.prefs)
+test.sample <- LabyrinthImputeSample(vcf.obj, sample, parent.geno, test.prefs)j
+
+prefs$parallel <- TRUE
+prefs$cores <- 4
+prefs$quiet <- TRUE
+test.impute <- LabyrinthImputeHelper(vcf.obj.big, prefs)
+## test.impute <- LabyrinthImpute(vcf.file.big, c("LAKIN", "FULLER"))
 
 ## dummy <- LabyrinthImpute(file="../LakinFuller_004.vcf", c("LAKIN","FULLER"))
+
+finalResult <- local({
+  f <- fifo(tempfile(), open="w+b", blocking=T)
+  if (inherits(parallel:::mcfork(), "masterProcess")) {
+    # Child
+    progress <- 0.0
+    while (progress < 1 && !isIncomplete(f)) {
+      msg <- readBin(f, "double")
+      progress <- progress + as.numeric(msg)
+      cat(sprintf("Progress: %.2f%%\r", progress * 100))
+    } 
+    parallel:::mcexit()
+  }
+  numJobs <- 100
+  result <- mclapply(1:numJobs, function(...) {
+    # Do something fancy here... For this example, just sleep
+    Sys.sleep(0.05)
+    # Send progress update
+    writeBin(1/numJobs, f)
+    # Some arbitrary result
+    sample(1000, 1)
+  })
+  close(f)
+  result
+})
+
+dispmclapply <- function(X, FUN, ..., mc.preschedule = TRUE, mc.set.seed = TRUE, 
+                            mc.silent = FALSE, mc.cores = getOption("mc.cores", 2L),
+                            mc.cleanup = TRUE, mc.allow.recursive = TRUE) {
+    local({
+        f <- fifo(tempfile(), open="w+b", blocking=T)
+        if (inherits(parallel:::mcfork(), "masterProcess")) {
+            progress <- 0.0
+            while (progress < 1 && !isIncomplete(f)) {
+                msg <- readBin(f, "double")
+                progress <- progress + as.numeric(msg)
+                cat(sprintf("Progress: %.2f%%\n", progress * 100))
+            } 
+            parallel:::mcexit()
+        }
+        result <- mclapply(X, function(...) {
+                                        # Do something fancy here... For this example, just sleep
+            Sys.sleep(0.05)
+                                        # Send progress update
+            writeBin(1/numJobs, f)
+                                        # Some arbitrary result
+            sample(1000, 1)
+        })
+        close(f)
+        result
+    })
+}

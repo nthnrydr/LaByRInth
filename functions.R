@@ -494,21 +494,63 @@ MakeStateMap <- function(variants, sample, probpath) {
 ## TODO(Jason): For displaying output progress maybe do it something like this:
 ##
 ## LaByRInth (https://github.com/Dordt-/LaByRInth.git)
-##   Imputing NN variants at MM chromosomes
+##   Imputing NN variants at MM chromosomes (SS total sites)
 ##   XX imputations will run (NN x MM)
 ##
+##   +------+-----------+---------------+
 ##   | #    | CHROM     | VARIANT       |
 ##   +------+-----------+---------------+
 ##   | 1    | A2        | U202-178      |
 ##   | 2    | B2        | U202-079      |
 ##   | 3    | C1        | U202-104      |
 ##   | 4    | D5        | U202-001      |
-##   ...
+##   | .    |  .        |    .          |
+##   | .    |  .        |    .          |
+##   | .    |  .        |    .          |
+##   | 4    | D5        | U202-001      |
+##   +------+-----------+---------------+
+##
+##   LaByRInth completed (Y:MM:DD:HH:MM:SS)
 ##
 ## Use clojure so that a function will generate a function which
 ## prints in the correct manner. Make sure flushin occurs with every
 ## print and if possible use a mutex/semaphor to keep things in order
 ## and only having one thing print at a time
+
+
+PrintBar <- function(colwidths, leading="") {
+    line <- c(leading,
+              "+-", rep("-", colwidths[1]),
+              "-+-", rep("-", colwidths[2]),
+              "-+-", rep("-", colwidths[3]),
+              "-+")
+    line <- paste0(line, collapse="")
+    writeLines(line)
+}
+
+
+PrintHeader <- function(colwidths, leading="") {
+    line <- c(leading,
+              "| ", format(" #", width=colwidths[1]),
+              " | ", format(" CHROM", width=colwidths[2]),
+              " | ", format(" VARIANT", width=colwidths[3]),
+              " |")
+    line <- paste0(line, collapse="")
+    PrintBar(colwidths, leading)
+    writeLines(line)
+    PrintBar(colwidths, leading)
+}
+
+
+PrintLine <- function(entries, colwidths, leading="") {
+    line <- c(leading,
+              "| ", format(entries[1], width=colwidths[1]),
+              " | ", format(entries[2],  width=colwidths[2]),
+              " | ", format(entries[3], width=colwidths[3]),
+              " |")
+    line <- paste0(line, collapse="")
+    writeLines(line)
+}
 
 
 LabyrinthImpute <- function(file, parents) {
@@ -519,6 +561,19 @@ LabyrinthImpute <- function(file, parents) {
 }
 
 
+IndexIncrementFun <- function() {
+    index <- 0
+    function() {
+        index <<- index + 1
+        index
+    }
+}
+
+
+## TODO(Jason): Remove LabyrinthImputeHelper
+## TODO(Jason): Save rds version of file to impute again??
+## TODO(Jason): Instead of printing the large table can I do a progress bar one
+## step at a time?
 LabyrinthImputeHelper <- function(vcf, prefs) {
     if (!inherits(vcf, "vcf")) {
         stop("vcf must be of class 'vcf'")
@@ -527,13 +582,61 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
         stop("prefs must be of class 'prefs'")
     }
 
-    ## TODO(Jason): don't impute the parents
+    ## Determine whether to run in parallel and how many cores to use
+    if (prefs$parallel) {
+        require(parallel)
+        prefs$lapply <- function(...,
+                                 mc.preschedule=F,
+                                 mc.cores=prefs$cores) {
+            mclapply(..., mc.preschedule=mc.preschedule, mc.cores=mc.cores)
+        }
+    } else {
+        prefs$lapply <- function(...,
+                                 mc.preschedule=F,
+                                 mc.cores=prefs$cores) {
+            lapply(...)
+        }
+    }
     
+    ## TODO(Jason): don't impute the parents
+
+    chroms <- vcf$chrom.names
     variants <- vcf$variant.names
     parent.geno <- ResolveHomozygotes(vcf, prefs$parents)
+
+    ## Console output code
+    startTime <- Sys.time()
     
+    n.chrom <- length(chroms)
+    n.variants <- length(variants)
+    n.sites <- nrow(parent.geno)
+
+    header <- c("INDEX", "CHROM", "VARIANT")
+    prefs$colwidths <- c()
+    prefs$leading <- "      "
+    prefs$NextInd <- IndexIncrementFun()  # Clojure to get next index
+    
+    prefs$colwidths[1] <- max(nchar(n.chrom * n.variants), nchar(header[1]))
+    prefs$colwidths[2] <- max(nchar(chroms), nchar(header[2]))
+    prefs$colwidths[3] <- max(nchar(variants), nchar(header[3]))
+    
+    
+    writeLines("\n* LaByRInth (https://github.com/Dordt-/LaByRInth.git *\n")
+    writeLines(paste0(prefs$leading,
+                      "Imputing ",
+                      n.variants, " variants at ",
+                      n.chrom, " chromosomes (",
+                      n.sites, " sites)"))
+    writeLines(paste0(prefs$leading, n.variants * n.chrom,
+                      " imputations will run (",
+                      n.variants, " x ", n.chrom, ")\n"))
+    PrintBar(prefs$colwidths, prefs$leading)
+    PrintLine(header, prefs$colwidths, prefs$leading)
+    PrintBar(prefs$colwidths, prefs$leading)
+    
+    ## Actually run the imputation
     result <- do.call(cbind,
-        lapply(
+        prefs$lapply(
             variants, function(variant) {
                 LabyrinthImputeSample(vcf, variant, parent.geno, prefs)
             }))
@@ -541,6 +644,10 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
     colnames(result) <- variants
     rownames(result) <- rownames(parent.geno)
 
+    PrintBar(prefs$colwidths, prefs$leading)
+    runtime <- as.numeric(Sys.time() - startTime)
+    writeLines(paste0("\n", prefs$leading, "LaByRInth complete (", runtime, " sec)\n"))
+    
     result  # implicit return
                                   
     ## TODO(Jason): turn calls back into text
@@ -578,7 +685,6 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
     ## correct length
     if (sum(relevant.sites) < max(1, prefs$min.markers)) {  # boolean addition
         full.path <- rep(NA, length(relevant.sites))
-        print(paste(sample, chrom))
     } else {
         names(relevant.sites) <- NULL  # Makes debugging easier
         
@@ -609,6 +715,10 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
         }        
     }
 
+    if (!prefs$quiet) {
+        PrintLine(c(prefs$NextInd(), chrom, sample), prefs$colwidths, prefs$leading)
+    }
+
     ## At this stage full.path has entries of 1, 2, 3, or NA which indicates
     ## respectively if a site is homozygous parent 1, homozygous parent 2,
     ## heterozygous, or unknown. Now the entries will be converted to 0
@@ -619,20 +729,22 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
 InitializePreferences <- function() {
     prefs <- list()
     class(prefs)            <- "prefs"
-    
-    prefs$markov.order      <- 5                                       
+
+    ## Algorithm parameters
     prefs$parents           <- c("LAKIN", "FULLER")                 
     prefs$resolve.conflicts <- FALSE                                
+    prefs$recomb.double     <- FALSE                                
     prefs$read.err          <- 0.05                                 
     prefs$genotype.err      <- 0.05                                 
     prefs$recomb.err        <- 0.05                                 
     prefs$recomb.dist       <- 100000                               
-    prefs$recomb.double     <- FALSE                                
-    prefs$window.size       <- prefs$markov.order + 2          
-    prefs$min.samples       <- prefs$window.size                    
-    prefs$min.fraction      <- NULL  # Don't remember what this is  
-    prefs$min.markers       <- NULL # Don't remember what this is   
-    prefs$states            <- 3
+    prefs$min.markers       <- 1
+    prefs$states            <- length(prefs$parents) + 1
+
+    ## Logistics
+    prefs$quiet             <- FALSE
+    prefs$cores             <- 4
+    prefs$parallel          <- FALSE
 
     prefs  # implicit return
 }
@@ -655,4 +767,9 @@ ValidatePreferences <- function(prefs) {
         stop("recomb.double must be of type logical")
     }
     ## TODO
+}
+
+
+f <- function() {
+    print(parallel:::mcfork())
 }
