@@ -1,7 +1,6 @@
 ## Set up the testing preferences
 test.prefs <- list()
 class(test.prefs)             <- "prefs"
-test.prefs$markov.order       <- 5
 test.prefs$parents            <- c("LAKIN", "FULLER")
 test.prefs$resolve.conflicts  <- FALSE
 test.prefs$read.err           <- 0.05
@@ -10,9 +9,8 @@ test.prefs$recomb.err         <- 0.05
 test.prefs$recomb.dist        <- 100000
 test.prefs$recomb.double      <- FALSE
 test.prefs$window.size        <- test.prefs$markov.order + 2
-test.prefs$min.samples        <- prefs$window.size
 test.prefs$min.fraction       <- NULL  # Don't remember what this is
-test.prefs$min.markers        <- NULL # Don't remember what this is
+test.prefs$min.markers        <- 1
 test.prefs$states             <- 3                                    
 
 
@@ -69,5 +67,7 @@ chrom <- "1B"
 data <- Get(vcf.obj, "GT", sample, chrom)
 
 test.chrom.impute <- LabyrinthImputeChrom(vcf.obj, sample, chrom, parent.geno, test.prefs)
+test.sample <- LabyrinthImputeSample(vcf.obj, sample, parent.geno, test.prefs)
+test.impute <- LabyrinthImputeHelper(vcf.obj, test.prefs)
 
 ## dummy <- LabyrinthImpute(file="../LakinFuller_004.vcf", c("LAKIN","FULLER"))

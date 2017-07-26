@@ -94,7 +94,11 @@ viterbi <- function(probs, dists, prefs) {
     ## This will keep track of the overall probabilites of each of the {nstates}
     ## final paths, so that the probability of the final paths do not have to be
     ## computed again. The probabilities are initialized to the emission
-    ## probabilities of the first site of the probs matrix which is the first row
+    ## probabilities of the first site of the probs matrix which is the first
+    ## row
+    if (nrow(probs) < 1) {
+        stop("viterbi requires that probs have > 0 rows")
+    }
     probs.tracker <- log(probs[1, ])
 
     ## TESTING: probs.matrix <- paths.tracker
@@ -130,7 +134,6 @@ viterbi <- function(probs, dists, prefs) {
     ## information is encoded within the paths.tracker matrix and needs to be
     ## extracted. That is what generatePath will do when passed the path.tracker
     ## matrix and the index of the optimal path.
-    browser()
     generatePath(paths.tracker, which.max(probs.tracker))  # return best path
 }
 
@@ -524,15 +527,21 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
         stop("prefs must be of class 'prefs'")
     }
 
-    chroms <- vcf$chrom.names
+    ## TODO(Jason): don't impute the parents
+    
     variants <- vcf$variant.names
     parent.geno <- ResolveHomozygotes(vcf, prefs$parents)
     
-    call.matrix <- as.matrix(
-        do.call(cbind, lapply(
+    result <- do.call(cbind,
+        lapply(
             variants, function(variant) {
                 LabyrinthImputeSample(vcf, variant, parent.geno, prefs)
-            })))
+            }))
+
+    colnames(result) <- variants
+    rownames(result) <- rownames(parent.geno)
+
+    result  # implicit return
                                   
     ## TODO(Jason): turn calls back into text
 }
@@ -541,11 +550,9 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
 LabyrinthImputeSample <- function(vcf, sample, parent.geno, prefs) {
     chroms <- vcf$chrom.names
 
-    call.matrix <- as.matrix(
-        do.call(rbind, lapply(
-            chroms, function(chrom) {
-                LabyrinthImputeChrom(vcf, sample, chrom, parent.geno, prefs)
-            })))
+    do.call(c, lapply(chroms, function(chrom) {
+        LabyrinthImputeChrom(vcf, sample, chrom, parent.geno, prefs)
+    }))
 }
 
 
@@ -565,34 +572,43 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
     })
 
     relevant.sites <- GetRelevantProbabiltiesIndex(emission.probs)
-    names(relevant.sites) <- NULL  # Makes debugging easier
-    
-    ## distances between relevant sites
-    dists <- diff(site.pos[relevant.sites])
 
-    relevant.probs <- emission.probs[relevant.sites, ]
-    class(relevant.probs) <- "probs"
-    
-    path <- viterbi(relevant.probs, dists, prefs)
+    ## If there are not enough markers according to user preference (or if there
+    ## are 0), then do not do the imputation and return a path of NA's of the
+    ## correct length
+    if (sum(relevant.sites) < max(1, prefs$min.markers)) {  # boolean addition
+        full.path <- rep(NA, length(relevant.sites))
+        print(paste(sample, chrom))
+    } else {
+        names(relevant.sites) <- NULL  # Makes debugging easier
+        
+        ## distances between relevant sites
+        dists <- diff(site.pos[relevant.sites])
 
-    ## TODO(Jason): add code to compute reverse path and reconcile them. This is
-    ## probably worth putting into a function call since there are quite a few
-    ## lines of code dedicated to filling in the NA's again.
-    
-    browser()
-    full.path <- relevant.sites
+        relevant.probs <- emission.probs[relevant.sites, ]
+        class(relevant.probs) <- "probs"
 
-    path.index <- 1
-    ## The missing calls that were not relevant will be filled back in
-    ## to create the full path from the 
-    for (i in seq_along(relevant.sites)) {
-        if (relevant.sites[i]) {  # if the site was relevant
-            full.path[i] <- path[path.index]  # set to next call
-            path.index <- path.index + 1  # increment call index
-        } else {
-            full.path[i] <- NA
-        }
+        path <- viterbi(relevant.probs, dists, prefs)
+
+        ## TODO(Jason): add code to compute reverse path and reconcile them. This is
+        ## probably worth putting into a function call since there are quite a few
+        ## lines of code dedicated to filling in the NA's again.
+        
+        full.path <- relevant.sites
+
+        path.index <- 1
+        ## The missing calls that were not relevant will be filled back in
+        ## to create the full path from the 
+        for (i in seq_along(relevant.sites)) {
+            if (relevant.sites[i]) {  # if the site was relevant
+                full.path[i] <- path[path.index]  # set to next call
+                path.index <- path.index + 1  # increment call index
+            } else {
+                full.path[i] <- NA
+            }
+        }        
     }
+
     ## At this stage full.path has entries of 1, 2, 3, or NA which indicates
     ## respectively if a site is homozygous parent 1, homozygous parent 2,
     ## heterozygous, or unknown. Now the entries will be converted to 0
