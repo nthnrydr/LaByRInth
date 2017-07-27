@@ -97,7 +97,7 @@ test.sample <- LabyrinthImputeSample(vcf.obj, sample, parent.geno, test.prefs)j
 prefs$parallel <- TRUE
 prefs$cores <- 4
 prefs$quiet <- TRUE
-test.impute <- LabyrinthImputeHelper(vcf.obj, prefs)
+test.impute <- LabyrinthImputeHelper(vcf.obj.big, prefs)
 ## test.impute <- LabyrinthImpute(vcf.file.big, c("LAKIN", "FULLER"))
 
 ## dummy <- LabyrinthImpute(file="../LakinFuller_004.vcf", c("LAKIN","FULLER"))

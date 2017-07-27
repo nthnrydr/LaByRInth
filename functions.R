@@ -535,7 +535,13 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
     n.sites <- nrow(parent.geno)
     prefs$n.jobs <- n.variants * n.chrom
 
-    writeLines("\n* LaByRInth (https://github.com/Dordt-/LaByRInth.git *\n")
+    writeLines("\n")
+    writeLines("* LaByRInth: Low-coverage Biallelic R-package Imputation      *")
+    writeLines("* Copyright 2017 Jason Vander Woude, Nathan Ryder             *")
+    writeLines("* Licensed under the Apache License, Version 2.0              *")
+    writeLines("* Source code: github.com/Dordt-Statistics-Research/LaByRInth *")
+    writeLines("* Funding recieved from NSF (IOS-1238187)                     *")
+    writeLines("\n")
     writeLines(paste0("    Imputing ",
                       n.variants, " variants at ",
                       n.chrom, " chromosomes (",
@@ -564,20 +570,20 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
     rownames(result) <- rownames(parent.geno)
     
     vcf.out <- paste0("../LaByRInth_", gsub("[ :]", "-", date()), "_.vcf")
-    print(vcf.out)
-
-    ## parent.geno <- apply(parent.geno, 1:2, function(elem) {
-    ##     if (is.na(elem)) {
-    ##         "."
-    ##     }
-    ## }
-    ## parent.geno <- cbind(parent.geno, parent.geno[, 1])
     
     ## Write imputations to
     sink(vcf.out)
-    writeLines(paste(vcf$header[1], collapse="\n"))  # Add header
+    writeLines(vcf$header[1])  # Add header
+    writeLines("##FORMAT=<ID=GT,Number=1,Type=String,Description=\"Genotype\">")
+    names <- vcf$header[length(vcf$header)]
+    writeLines(names)  # Add header
+    names <- str.split(names, "\t")
+    
+    prefix <- cbind(vcf$variants[, 1:which(names=="INFO")], "GT")
 
     for (i in 1:n.sites) {
+        cat(paste0(prefix[i, ], collapse="\t"))
+        cat("\t")
         for (j in 1:n.variants) {
             call <- result[i, j]
             if (is.na(call)) {
@@ -598,7 +604,14 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
                 ## probabilities better though. Is it valid to have sites that
                 ## look like ./1 to represent that we confidently know what one
                 ## of the two alleles is but not the other?
+                if (i > nrow(parent.geno) || call > ncol(parent.geno)) {
+                    browser()
+                }
+                browser()  # Error with bounds happening here
                 geno <- parent.geno[i, call]
+                if (is.na(geno)) {
+                    geno <- "."
+                }
                 text <- paste0(geno, "/", geno)
             } else if (call == 3) {
                 text <- "0/1"
@@ -639,7 +652,7 @@ LabyrinthImputeSample <- function(vcf, sample, parent.geno, prefs) {
     
     chroms <- vcf$chrom.names
 
-    do.call(c, lapply(chroms, function(chrom) {
+    do.call(c, mclapply(chroms, function(chrom) {
         result <- LabyrinthImputeChrom(vcf, sample, chrom, parent.geno, prefs)
         writeBin(1/prefs$n.jobs, prefs$fifo)
         result  # implicit return
