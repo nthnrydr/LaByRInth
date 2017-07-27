@@ -86,8 +86,11 @@ generatePath <- function(path.tracker, index) {
 viterbi <- function(probs, dists, prefs) {
     nstates <- nstates.probs(probs)
     path.size <- nsites.probs(probs)
-    
-    paths.tracker <- matrix(NA, nrow=nstates, ncol=path.size)
+
+    ## if (!is.numeric(nstates) || !is.numeric(path.size)) {
+    ##     browser()
+    ## }
+    paths.tracker <- matrix(NA_integer_, nrow=nstates, ncol=path.size)
     ## TODO(Jason): make sure this is right. Changed an invalid index j to 1 on
     ## July 26
 
@@ -107,27 +110,34 @@ viterbi <- function(probs, dists, prefs) {
     ## hard code the first column to the vector 1,2,...,nstates
     ## this is what the generatePath function will need
     paths.tracker[, 1] <- 1:nstates
-    
-    for (site in 2:path.size) {  # for each site in the path
-        
-        dist <- dists[site - 1]
-        
-        ## for each possible hidden state at this site
-        probs.tracker <- sapply(1:nstates, function(state) {
-            
-            extension.probs <- sapply(1:nstates, function(i) {
-                ## Probability of being at state i before and transitioning to
-                ## the 'state' state
-                probs.tracker[i] + log(transProb(i, state, dist, prefs))
-            })
-            
-            ## which partial path has the highest probability of moving to state
-            ## 'state'
-            paths.tracker[state, site] <<- which.max(extension.probs)
-            max(extension.probs) + log(probs[site, state])  # return new probability
-        })
 
-        ## TESTING: probs.matrix[, site] <- probs.tracker
+    if (path.size != 1) {  # if the path size is 1 just use the emission probs
+        for (site in 2:path.size) {  # for each site in the path
+            
+            dist <- dists[site - 1]
+            
+            ## for each possible hidden state at this site
+            probs.tracker <- sapply(1:nstates, function(state) {
+                
+                extension.probs <- sapply(1:nstates, function(i) {
+                    ## Probability of being at state i before and transitioning to
+                    ## the 'state' state
+                    probs.tracker[i] + log(transProb(i, state, dist, prefs))
+                })
+                
+                ## which partial path has the highest probability of moving to state
+                ## 'state'
+                tryCatch({
+                    paths.tracker[state, site] <<- which.max(extension.probs)
+                }, error = function(e) {
+                    browser()
+                    print("BROKEN")
+                })
+                max(extension.probs) + log(probs[site, state])  # return new probability
+            })
+
+            ## TESTING: probs.matrix[, site] <- probs.tracker
+        }
     }
 
     ## The code above has already computed the optimal path, but that
@@ -218,13 +228,17 @@ VCF <- function(file) {
     vcf$variants <- readLines(file)
     isComment <- sapply(vcf$variants, function(line){substr(line,1,1) == "#"})
 
-    vcf$header.lines <- vcf$variants[isComment]     #remove the header, but save so it can be restored later
+    ## Remove the header, but save so it can be restored later
+    vcf$header.lines <- vcf$variants[isComment]     
     vcf$variants <- vcf$variants[!isComment]
-    vcf$variants <- do.call(rbind, lapply(vcf$variants, function(line){str.split(line, "\t")}))  #make table
+    ## Make table
+    vcf$variants <- do.call(rbind,
+                            lapply(vcf$variants,
+                                   function(line){str.split(line, "\t")}))
 
     header <- vcf$header.lines[length(vcf$header.lines)]  #get column heading
     header <- substr(header, 2, nchar(header)) #remove leading '#'
-    colnames(vcf$variants) <- strsplit(header, "\t")[[1]] #[[1]] is because strsplit returns a 1-element list
+    colnames(vcf$variants) <- str.split(header, "\t")
     
     formatExample <- vcf$variants[1, "FORMAT"]
     field.names <- str.split(formatExample, ":")
@@ -507,6 +521,7 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
 
     ## Determine whether to run in parallel and how many cores to use
     if (prefs$parallel) {
+        writeLines("Running in parallel")
         require(parallel)
         prefs$lapply <- function(...,
                                  mc.preschedule=F,
@@ -514,6 +529,7 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
             mclapply(..., mc.preschedule=mc.preschedule, mc.cores=mc.cores)
         }
     } else {
+        writeLines("Running in serial")
         prefs$lapply <- function(...,
                                  mc.preschedule=F,
                                  mc.cores=prefs$cores) {
@@ -528,7 +544,7 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
     parent.geno <- ResolveHomozygotes(vcf, prefs$parents)
 
     ## Console output code
-    startTime <- Sys.time()
+    start.time <- Sys.time()
     
     n.chrom <- length(chroms)
     n.variants <- length(variants)
@@ -536,12 +552,13 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
     prefs$n.jobs <- n.variants * n.chrom
 
     writeLines("\n")
-    writeLines("* LaByRInth: Low-coverage Biallelic R-package Imputation      *")
-    writeLines("* Copyright 2017 Jason Vander Woude, Nathan Ryder             *")
-    writeLines("* Licensed under the Apache License, Version 2.0              *")
-    writeLines("* Source code: github.com/Dordt-Statistics-Research/LaByRInth *")
-    writeLines("* Funding recieved from NSF (IOS-1238187)                     *")
+    writeLines("* LaByRInth: Low-coverage Biallelic R-package Imputation              *")
+    writeLines("* Copyright 2017 Jason Vander Woude, Nathan Ryder                     *")
+    writeLines("* Licensed under the Apache License, Version 2.0                      *")
+    writeLines("* Source code: github.com/Dordt-Statistics-Research/LaByRInth         *")
+    writeLines("* Funding recieved from the National Science Foundation (IOS-1238187) *")
     writeLines("\n")
+    writeLines(paste0("    Running in ", ifelse(prefs$parallel, "parallel", "serial")))
     writeLines(paste0("    Imputing ",
                       n.variants, " variants at ",
                       n.chrom, " chromosomes (",
@@ -556,20 +573,25 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
     ## in the progress.env environment
     progress.env <- new.env()
     prefs$fifo <- ProgressMonitor(progress.env)
-    
+    assign("progress", 0.0, envir=progress.env)
+    prefs$prog.env <- progress.env
+
     ## Actually run the imputation
     result <- do.call(cbind,
-        mclapply(
-            variants, function(variant) {
-                LabyrinthImputeSample(vcf, variant, parent.geno, prefs)
-            }))
+                      prefs$lapply(
+                          variants, function(variant) {
+                              LabyrinthImputeSample(vcf, variant, parent.geno, prefs)
+                          }, mc.preschedule=FALSE, mc.cores=prefs$cores))
 
     close(prefs$fifo)
 
     colnames(result) <- variants
     rownames(result) <- rownames(parent.geno)
-    
+
+    ## Replace spaces and colons with dashes
     vcf.out <- paste0("../LaByRInth_", gsub("[ :]", "-", date()), "_.vcf")
+    writeLines("    Results imputed")
+    writeLines(paste0("    Writing output to ", vcf.out))
     
     ## Write imputations to
     sink(vcf.out)
@@ -604,10 +626,20 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
                 ## probabilities better though. Is it valid to have sites that
                 ## look like ./1 to represent that we confidently know what one
                 ## of the two alleles is but not the other?
-                if (i > nrow(parent.geno) || call > ncol(parent.geno)) {
-                    browser()
-                }
-                browser()  # Error with bounds happening here
+                ## if (i > nrow(parent.geno) || call > ncol(parent.geno)) {
+                ##     browser()
+                ## }
+                ## browser()  # Error with bounds happening here
+    ## print("GOING TO SET GENOTYPE")
+                tryCatch({
+                    geno <- parent.geno[i, call]
+                }, warning = function(w) {
+                   
+                }, error = function(e) {
+                   browser()
+                }, finally = {
+                   
+                })
                 geno <- parent.geno[i, call]
                 if (is.na(geno)) {
                     geno <- "."
@@ -616,11 +648,7 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
             } else if (call == 3) {
                 text <- "0/1"
             } else {
-                stop(paste("OOPS:", call))
-            }
-            if (text == "NA/NA") {
-                sink()
-                browser()
+                stop(paste("Invalid genotype call:", call))
             }
             cat(text)
             if (j != n.variants) {
@@ -634,7 +662,10 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
     sink()
     ## TODO(Jason): turn calls back into text
 
-    runtime <- as.numeric(Sys.time() - startTime)
+    end.time <- Sys.time()
+    print(start.time)
+    print(end.time)
+    runtime <- as.numeric(end.time - start.time)
     writeLines(paste0("    Completed in ", ceiling(runtime), " seconds\n"))
     result  # implicit return
 }
@@ -652,11 +683,20 @@ LabyrinthImputeSample <- function(vcf, sample, parent.geno, prefs) {
     
     chroms <- vcf$chrom.names
 
-    do.call(c, mclapply(chroms, function(chrom) {
+    do.call(c, prefs$lapply(chroms, function(chrom) {
         result <- LabyrinthImputeChrom(vcf, sample, chrom, parent.geno, prefs)
         writeBin(1/prefs$n.jobs, prefs$fifo)
+        if (!prefs$parallel) {  # if running in serial mode
+            ## TODO(Jason): use the progress environment which should be stored
+            ## as a preference to hold the progress to have consistence across
+            ## serial and parallel
+            ## msg <- readBin(prefs$fifo, "double")
+            ## prefs$progress <<- prefs$progress + as.numeric(msg)
+            ## cat(sprintf("    Progress: %.2f%%\r", prefs$progress * 100))
+            prefs$prog.env$progress <- PrintProgress(prefs$fifo, prefs$prog.env$progress)
+        }  # else the forked process handles this
         result  # implicit return
-    }))
+    }, mc.preschedule=FALSE, mc.cores=prefs$cores))
 }
 
 
@@ -681,14 +721,14 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
     ## are 0), then do not do the imputation and return a path of NA's of the
     ## correct length
     if (sum(relevant.sites) < max(1, prefs$min.markers)) {  # boolean addition
-        full.path <- rep(NA, length(relevant.sites))
+        full.path <- rep(NA_integer_, length(relevant.sites))
     } else {
         names(relevant.sites) <- NULL  # Makes debugging easier
         
         ## distances between relevant sites
         dists <- diff(site.pos[relevant.sites])
 
-        relevant.probs <- emission.probs[relevant.sites, ]
+        relevant.probs <- emission.probs[relevant.sites, , drop=F]
         class(relevant.probs) <- "probs"
 
         path <- viterbi(relevant.probs, dists, prefs)
@@ -715,6 +755,17 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
     ## At this stage full.path has entries of 1, 2, 3, or NA which indicates
     ## respectively if a site is homozygous parent 1, homozygous parent 2,
     ## heterozygous, or unknown. Now the entries will be converted to 0
+    ## For some reason there was a problem with strings sometimes coming through
+    ## and I am not sure why
+    
+##     if (!is.numeric(full.path)) {
+##         if (!all(is.na(full.path))) {
+##             browser()
+##             print("Going to convert")
+##         } else {
+##            print("ALL NA")
+        ## }
+##     }
     full.path  # implicit return
 }
 
@@ -766,15 +817,24 @@ ValidatePreferences <- function(prefs) {
 ProgressMonitor <- function(env) {
     local({
         f <- fifo(tempfile(), open="w+b", blocking=T)
+        if (!prefs$parallel) {  # don't fork if running serially
+            return(f)
+        }
         if (inherits(parallel:::mcfork(), "masterProcess")) {
             progress <- 0.0
             while (progress < 1 && !isIncomplete(f)) {
-                msg <- readBin(f, "double")
-                progress <- progress + as.numeric(msg)
-                cat(sprintf("    Progress: %.2f%%\r", progress * 100))
+                progress <- PrintProgress(f, progress)
             } 
             parallel:::mcexit()
         }
         f  # implicit return
     }, envir=env)
+}
+
+
+PrintProgress <- function(f, curr.prog) {
+    msg <- readBin(f, "double")
+    progress <- curr.prog + as.numeric(msg)
+    cat(sprintf("    Progress: %.2f%%\r", progress * 100))
+    progress  # implicit return
 }

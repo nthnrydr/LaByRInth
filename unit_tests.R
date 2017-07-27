@@ -92,10 +92,10 @@ chrom <- "1B"
 data <- Get(vcf.obj, "GT", sample, chrom)
 
 test.chrom.impute <- LabyrinthImputeChrom(vcf.obj, sample, chrom, parent.geno, test.prefs)
-test.sample <- LabyrinthImputeSample(vcf.obj, sample, parent.geno, test.prefs)j
+test.sample <- LabyrinthImputeSample(vcf.obj, sample, parent.geno, test.prefs)
 
 prefs$parallel <- TRUE
-prefs$cores <- 4
+prefs$cores <- 40
 prefs$quiet <- TRUE
 test.impute <- LabyrinthImputeHelper(vcf.obj.big, prefs)
 ## test.impute <- LabyrinthImpute(vcf.file.big, c("LAKIN", "FULLER"))
