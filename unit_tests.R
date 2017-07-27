@@ -85,19 +85,48 @@ vcf.file.big <- "../LakinFuller_001.vcf"
 vcf.obj <- VCF(vcf.file)
 vcf.obj.big <- VCF(vcf.file.big)
 
-parent.geno <- ResolveHomozygotes(vcf.obj, test.prefs$parents)
+## Full imputation
+prefs$parallel <- TRUE
+prefs$cores <- 40
+prefs$quiet <- TRUE
+test.impute <- LabyrinthImputeHelper(vcf.obj.big, prefs)
+
+
+## Chromosome imputation to test viterbi correctness
+parent.geno <- ResolveHomozygotes(vcf.obj, prefs$parents)
 sample <- "U6202-080"
 chrom <- "1B"
 
 data <- Get(vcf.obj, "GT", sample, chrom)
 
-test.chrom.impute <- LabyrinthImputeChrom(vcf.obj, sample, chrom, parent.geno, test.prefs)
-test.sample <- LabyrinthImputeSample(vcf.obj, sample, parent.geno, test.prefs)
 
-prefs$parallel <- TRUE
-prefs$cores <- 40
-prefs$quiet <- TRUE
-test.impute <- LabyrinthImputeHelper(vcf.obj.big, prefs)
-## test.impute <- LabyrinthImpute(vcf.file.big, c("LAKIN", "FULLER"))
+test.chrom.impute <- LabyrinthImputeChrom(vcf.obj, sample, chrom, parent.geno, prefs)
+## test.sample <- LabyrinthImputeSample(vcf.obj, sample, parent.geno, prefs)
 
-## dummy <- LabyrinthImpute(file="../LakinFuller_004.vcf", c("LAKIN","FULLER"))
+
+Display <- function(vecs) {
+    invisible(sapply(vecs, function(vec) {
+        vec <- sapply(vec, function(elem) {
+            if (is.na(elem)) {
+                "-"
+            } else if (is.logical(elem)) {
+                if (elem) {
+                    "#"
+                } else {
+                    "."
+                }
+            } else {
+                elem
+            }
+        })
+        writeLines(paste0(vec, collapse=""))
+    }))
+}
+
+lakin <- Get(vcf.obj, "GT", "LAKIN", chrom)
+fuller <- Get(vcf.obj, "GT", "FULLER", chrom)
+Display(list(lakin,
+             fuller,
+             test.chrom.impute))
+
+

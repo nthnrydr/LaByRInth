@@ -681,6 +681,8 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
 
     relevant.sites <- GetRelevantProbabiltiesIndex(emission.probs)
 
+    browser()
+
     ## If there are not enough markers according to user preference (or if there
     ## are 0), then do not do the imputation and return a path of NA's of the
     ## correct length
