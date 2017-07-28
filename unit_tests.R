@@ -1,19 +1,3 @@
-## Set up the testing preferences
-test.prefs <- list()
-class(test.prefs)             <- "prefs"
-test.prefs$parents            <- c("LAKIN", "FULLER")
-test.prefs$resolve.conflicts  <- FALSE
-test.prefs$read.err           <- 0.05
-test.prefs$genotype.err       <- 0.05
-test.prefs$recomb.err         <- 0.05
-test.prefs$recomb.dist        <- 100000
-test.prefs$recomb.double      <- FALSE
-test.prefs$window.size        <- test.prefs$markov.order + 2
-test.prefs$min.fraction       <- NULL  # Don't remember what this is
-test.prefs$min.markers        <- 1
-test.prefs$states             <- 3
-test.prefs$quiet              <- FALSE
-
 ## prefs
     prefs <- list()
     class(prefs)            <- "prefs"
@@ -128,5 +112,3 @@ fuller <- Get(vcf.obj, "GT", "FULLER", chrom)
 Display(list(lakin,
              fuller,
              test.chrom.impute))
-
-

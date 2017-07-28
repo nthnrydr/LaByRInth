@@ -384,7 +384,7 @@ GetProbabilities <- function(vcf, sample, chromosomes, parent.geno, prefs) {
     gt <- Get(vcf, "GT", sample, chromosomes)
     ad <- Get(vcf, "AD", sample, chromosomes)
 
-    ret.val <- matrix(NA, nrow = nrow(gt), ncol = prefs$states)
+    ret.val <- matrix(NA_integer_, nrow = nrow(gt), ncol = prefs$states)
     rownames(ret.val) <- rownames(gt)
     colnames(ret.val) <- c(colnames(parent.geno), "HETEROZYGOUS")
     class(ret.val) <- "prob"
@@ -461,13 +461,17 @@ GetProbabilities <- function(vcf, sample, chromosomes, parent.geno, prefs) {
 
 
 ## Determine which rows are real calls
-GetRelevantProbabiltiesIndex <- function(emission.prob) {
-    if (!inherits(emission.prob, "prob")) {
-        stop("emission.prob must be of class 'emission.prob'")
+GetRelevantProbabiltiesIndex <- function(vcf, chromosomes, parent.geno, prefs) {
+    if (! inherits(vcf, "vcf")) {
+        stop("vcf must be of class 'vcf'")
     }
-    apply(emission.prob, 1, function(row) {
-        !all(row == 1)
-    })  # implicit return
+    if (is.null(chromosomes)) {
+        chromosomes <- vcf$chrom.names
+    }
+    rows <- vcf$variants[, "CHROM"] %in% chromosomes
+    apply(parent.geno[rows, , drop=F], 1, function(calls) {
+        !anyNA(calls)
+    })
 }
 
 
@@ -679,9 +683,8 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
         as.numeric(str.split(name, ":")[2])
     })
 
-    relevant.sites <- GetRelevantProbabiltiesIndex(emission.probs)
-
-    browser()
+    relevant.sites <- GetRelevantProbabiltiesIndex(vcf, chrom, parent.geno, prefs)
+    ## <- GetRelevantProbabiltiesIndex(emission.probs)
 
     ## If there are not enough markers according to user preference (or if there
     ## are 0), then do not do the imputation and return a path of NA's of the
