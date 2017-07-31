@@ -736,12 +736,11 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
         relevant.probs <- emission.probs[relevant.sites, , drop=F]
         class(relevant.probs) <- "probs"
 
-        path <- viterbi(relevant.probs, dists, prefs)
+        path <- GeneralViterbi(relevant.probs, dists, 1, prefs)
 
         if (n.relevant.sites != 1) {
-            rev.probs <- apply(relevant.probs, 2, rev)
-            rev.path <- viterbi(rev.probs, rev(dists), prefs)
-            path <- ResolvePaths(rbind(path, rev(rev.path)))
+            path2 <- GeneralViterbi(relevant.probs, dists, n.relevant.sites, prefs)
+            path <- ResolvePaths(rbind(path, path2))
             if (prefs$viterbi.testing) {
                 perc.agree <- sum(!is.na(path)) / length(path)
                 return(perc.agree)
