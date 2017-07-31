@@ -17,6 +17,8 @@
     prefs$quiet             <- FALSE
     prefs$cores             <- 4
     prefs$parallel          <- FALSE
+    prefs$write             <- TRUE
+
 ## end prefs
 
 
@@ -73,6 +75,8 @@ vcf.obj.big <- VCF(vcf.file.big)
 prefs$parallel <- TRUE
 prefs$cores <- 40
 prefs$quiet <- TRUE
+prefs$write <- FALSE
+prefs$viterbi.testing <- FALSE
 test.impute <- LabyrinthImputeHelper(vcf.obj.big, prefs)
 
 
@@ -111,4 +115,19 @@ lakin <- Get(vcf.obj, "GT", "LAKIN", chrom)
 fuller <- Get(vcf.obj, "GT", "FULLER", chrom)
 Display(list(lakin,
              fuller,
+             data[, , 1],
              test.chrom.impute))
+
+StatVerify <- function(vcf.obj, parent.geno, prefs) {
+    mclapply(vcf.obj$chrom.names, function(ch) {
+        unlist(mclapply(vcf.obj$variant.names, function(va) {
+            LabyrinthImputeChrom(vcf.obj, va, ch, parent.geno, prefs)
+        }, mc.cores=40))
+    }, mc.cores=40)
+    ## keep track of the percentage of the time that the forward and the reverse
+    ## viterbi algorithm agree
+}
+
+prefs$viterbi.testing <- TRUE
+parent.geno <- ResolveHomozygotes(vcf.obj.big, prefs$parents)
+stats.verify <- StatVerify(vcf.obj.big, parent.geno, prefs)
