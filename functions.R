@@ -57,6 +57,50 @@ generatePath <- function(path.tracker, index) {
 }
 
 
+GeneralViterbi <- function(probs, dists, pivot, prefs) {
+    path.size <- nrow(probs)
+
+    if (length(pivot) != 1 || pivot < 0 || pivot > path.size) {
+        stop("Invalid choice of pivot")
+    }
+
+    ## Seperate probs and dists into those before the pivot and those after the
+    ## pivot and include the pivot point in both
+    front.probs <- probs[1:pivot, drop=F]
+    front.dists <- dists[1:pivot, drop=F]
+    back.probs <- probs[pivot:path.size]
+    back.dists <- probs[pivot:path.size]
+
+    ## Reverse the front.probs and front.dists so the algorithm can work from
+    ## the pivot outward in both directions
+    front.probs <- apply(front.probs, 2, rev)
+    front.dists <- rev(back.dists)
+
+    ## Use the viterbi to compute the front and back paths--that is the path
+    ## from the pivot toward the beginning and from the pivot toward the ending
+    front.path <- viterbi(front.probs, front.dists, prefs)
+    back.path <- viterbi(back.probs, back.dists, prefs)
+
+    ## Both the front and back use the pivot point in the path calculation, but
+    ## it is possible that they will disagree on this point. We don't believe
+    ## there is any reason to suggest that one would be a better imputation than
+    ## the other. The probability of the shorter path will likely be longer
+    ## because it will be the product of more probabilities. For now, we will
+    ## just resolve the conflict by setting it to NA.
+    test <- front.path[1] != back.path[1]
+    if (test | is.na(test)) {  # if not same or one is an NA
+        back.path[1] <- NA_integer_
+    }
+
+    ## The front path calculation is actually the reverse of what it really is
+    ## so it needs to be reversed to the correct orientation and then the pivot
+    ## imputation can be removed prior to merging with the back.path
+    front.path <- rev(front.path)
+    front.path <- front.path[-length(front.path)]  # remove pivot
+    c(front.path, back.path)  # implicit return
+}
+
+
 ##' Find the most probable path using the viterbi algorithm
 ##'
 ##' See http://homepages.ulb.ac.be/~dgonze/TEACHING/viterbi.pdf for details
@@ -704,6 +748,11 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
             }
         }
 
+        ## TODO(Jason): instead of running the viterbi forward and backward at
+        ## at even intervals specified by the user, lets run it at all of the
+        ## called sites. The first state guess by the viterbi relies heavily on
+        ## emission probabilities (I think...look into this) so having it begin
+        ## at locations where we are fairly certain of the state makes sense
         ## TODO(Jason): add code to compute reverse path and reconcile them. This is
         ## probably worth putting into a function call since there are quite a few
         ## lines of code dedicated to filling in the NA's again.
