@@ -96,21 +96,20 @@ viterbi <- function(probs, dists, prefs) {
     ## computed again. The probabilities are initialized to the emission
     ## probabilities of the first site of the probs matrix which is the first
     ## row
-    if (nrow(probs) < 1) {
+    if (path.size < 1) {
         stop("viterbi requires that probs have > 0 rows")
     }
     probs.tracker <- log(probs[1, ])
 
-    ## Hard code the first column to the vector 1,2,...,nstates
+    ## Hard code the first column to the vector 1,2,...,nstates as an index
     ## This is what the generatePath function will need
     paths.tracker[, 1] <- 1:nstates
-
     if (path.size != 1) {  # if the path size is 1 just use the emission probs
         for (site in 2:path.size) {  # for each site in the path
             
             dist <- dists[site - 1]
             
-            ## for each possible hidden state at this site
+            ## log of the probability for each possible hidden state at this site
             probs.tracker <- sapply(1:nstates, function(state) {
                 
                 extension.probs <- sapply(1:nstates, function(i) {
@@ -253,7 +252,7 @@ VCF <- function(file) {
 
 
     
-    ## TODO(Jason): make sure that errors don't happend with '.' instead of
+    ## TODO(Jason): make sure that errors don't happen with '.' instead of
     ## '3,4' or '1/2/3' the line "flat.mat <- ..." should be changed
 
 
@@ -299,7 +298,7 @@ VCF <- function(file) {
 
 ##' Get a subset of the data from the vcf object
 ##'
-##' Get data pertaining to the speficied field and subset it by samples and
+##' Get data pertaining to the specified field and subset it by samples and
 ##'     chromosomes.
 ##' @title 
 ##' @param vcf an object of class vcf
@@ -339,16 +338,16 @@ ResolveHomozygotes <- function(vcf, samples) {
     if (! inherits(vcf, "vcf")) {
         stop("vcf must be of class 'vcf'")
     }
-    genotype <- Get(vcf, "GT", samples)
-    allele.counts <- Get(vcf, "AD", samples, vcf$chrom.names)
+    genotype <- Get(vcf, "GT", samples, vcf$chrom.names)
+    allele.counts <- Get(vcf, "AD", samples, vcf$chrom.names) 
     ret.val <- genotype[, , 1]  # initilize to first slice in 3rd dim
-    for (r in 1:nrow(genotype)) {
-        for (c in 1:ncol(genotype)) {
-            alleles <- genotype[r, c, ]
+    for (r in 1:nrow(genotype)) {  # by chromosome site
+        for (c in 1:ncol(genotype)) {  # by variant/sample
+            alleles <- genotype[r, c, ]  # grab the observed alleles from a specific site of a variant chromosome
             
             if (any(is.na(alleles))) {  # One of the alleles is NA
                 ret.val[r, c] <- NA
-            } else if (all(alleles == alleles[1])) {  # Check if all are same)
+            } else if (all(alleles == alleles[1])) {  # Check if all are same
                 ret.val[r, c] <- alleles[1]
             } else if (sum(allele.counts[r, c, ] != 0) == 1) {  # Only 1 counted
                 ret.val[r, c] <- alleles[as.logical(allele.counts[r, c, ])]
