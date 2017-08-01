@@ -421,7 +421,8 @@ GetProbabilities <- function(vcf, sample, chromosomes, parent.geno, prefs) {
                 alt.calls <- 0
             }
 
-            max.allowed <- 1 - (2 * prefs$genotype.err)
+            ## probability constraints from LB-Impute original
+            max.allowed <- 1 - (2 * prefs$genotype.err)  
             min.allowed <- prefs$genotype.err
             
             ## Calculate the emission probabilities for this site
@@ -464,9 +465,6 @@ GetRelevantProbabiltiesIndex <- function(vcf, chromosomes, parent.geno, prefs) {
     if (! inherits(vcf, "vcf")) {
         stop("vcf must be of class 'vcf'")
     }
-    if (is.null(chromosomes)) {
-        chromosomes <- vcf$chrom.names
-    }
     rows <- vcf$variants[, "CHROM"] %in% chromosomes
     apply(parent.geno[rows, , drop=F], 1, function(calls) {
         !anyNA(calls)
@@ -481,15 +479,6 @@ LabyrinthImpute <- function(file, parents) {
     prefs$parents <- parents
 
     LabyrinthImputeHelper(VCF(file), prefs)
-}
-
-
-IndexIncrementFun <- function() {
-    index <- 0
-    function() {
-        index <<- index + 1
-        index
-    }
 }
 
 
@@ -751,16 +740,19 @@ InitializePreferences <- function() {
     prefs  # implicit return
 }
 
-
+##' Checking preferences for the correct variable type
+##'
+##' 
+##' @title 
+##' @param prefs 
+##' @return 
+##' @author Jason Vander Woude and Nathan Ryder
 ValidatePreferences <- function(prefs) {
-    if (!inhereits(prefs, "prefs")) {
+    if (!inherits(prefs, "prefs")) {
         stop("prefs must be of class 'prefs'")
     }
     if (length(parents) != 2) {
-        stop("exaclty 2 parents must be specified")
-    }
-    if (prefs$states != length(parents) + 1) {
-        stop("illegal number of states")
+        stop("exactly 2 parents must be specified")
     }
     if (!is.logical(resolve.conflicts)) {
         stop("resolve.conflicts must be of type logical")
@@ -768,6 +760,16 @@ ValidatePreferences <- function(prefs) {
     if (!is.logical(recomb.double)) {
         stop("recomb.double must be of type logical")
     }
+    if (!(0 <= read.err < 1) || !(0 <= genotype.err < 1) || !(0 <= recomb.err < 1)) {
+        stop("error values must be between 0 and 1")
+    }
+    if (!is.numeric(recomb.dist) || !(recomb.dist > 0)) {
+        stop("recombination distance must be a number greater than 0")
+    }
+    if (!is.numeric(min.markers) || !(min.markers >= 1)) {
+        stop("min.markers must be a number greater than or equal to 1")
+    }
+    if (
     ## TODO
 }
 
