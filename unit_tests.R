@@ -9,7 +9,7 @@
     prefs$read.err          <- 0.05                                 
     prefs$genotype.err      <- 0.05                                 
     prefs$recomb.err        <- 0.05                                 
-    prefs$recomb.dist       <- 100000                               
+    prefs$recomb.dist       <- 10000000                               
     prefs$min.markers       <- 1
     prefs$states            <- length(prefs$parents) + 1
 
@@ -21,53 +21,53 @@
 
 
 
-## Check the generatePath algorithm
-path.tracker.a <- matrix(c(3,1,1,1,1,1,3,2,2,2,3,3),byrow=T,nrow=3)
-path.tracker.a
-generatePath(path.tracker.a, 1)
-generatePath(path.tracker.a, 2)
-generatePath(path.tracker.a, 3)
+## ## Check the generatePath algorithm
+## path.tracker.a <- matrix(c(3,1,1,1,1,1,3,2,2,2,3,3),byrow=T,nrow=3)
+## path.tracker.a
+## generatePath(path.tracker.a, 1)
+## generatePath(path.tracker.a, 2)
+## generatePath(path.tracker.a, 3)
 
-probs <- matrix(c(0.5,0.4,0.1,0.3,0.3,0.4,0.7,0.1,0.2,0.5,0.4,0.1),nrow=4,byrow=T)
-probs
-transProb <- function(a, b, dists, prefs) {}
-
-
-## Check
-entry <- "0/0:1,0:1:66:0,3,36"
+## probs <- matrix(c(0.5,0.4,0.1,0.3,0.3,0.4,0.7,0.1,0.2,0.5,0.4,0.1),nrow=4,byrow=T)
+## probs
+## transProb <- function(a, b, dists, prefs) {}
 
 
-
-
-## Check vcf file creation
-alphabet <- c("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l")
-reorder(alphabet, 3)
-array(reorder(alphabet, 3), dim=c(2,2,3))
-mat <- matrix(c("a|b|c", "d/e/f", "g/h|i", "j|k/l"), nrow=2)
-mat
-submat <- gsub("\\|", "/", mat)
-submat
-alphabet <- unlist(strsplit(submat, "/"))
-alphabet
-array(reorder(alphabet, 3), dim=c(2,2,3))
+## ## Check
+## entry <- "0/0:1,0:1:66:0,3,36"
 
 
 
 
-## vcf
-vcfobj <- VCF(file="../LakinFuller_GBSv2_20170509.vcf")
-resolved.parents <- ResolveHomozygotes(vcfobj, test.prefs$parents)
-parent.6b.depths <- Get(vcfobj, "AD", test.prefs$parents, "6B")
-lakin.6b.depths <- Get(vcfobj, "AD", "LAKIN", "6B")
-parent.map <- GetProbabilities(vcfobj, "LAKIN", resolved.parents, test.prefs)
+## ## Check vcf file creation
+## alphabet <- c("a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l")
+## reorder(alphabet, 3)
+## array(reorder(alphabet, 3), dim=c(2,2,3))
+## mat <- matrix(c("a|b|c", "d/e/f", "g/h|i", "j|k/l"), nrow=2)
+## mat
+## submat <- gsub("\\|", "/", mat)
+## submat
+## alphabet <- unlist(strsplit(submat, "/"))
+## alphabet
+## array(reorder(alphabet, 3), dim=c(2,2,3))
+
+
+
+
+## ## vcf
+## vcfobj <- VCF(file="../LakinFuller_GBSv2_20170509.vcf")
+## resolved.parents <- ResolveHomozygotes(vcfobj, test.prefs$parents)
+## parent.6b.depths <- Get(vcfobj, "AD", test.prefs$parents, "6B")
+## lakin.6b.depths <- Get(vcfobj, "AD", "LAKIN", "6B")
+## parent.map <- GetProbabilities(vcfobj, "LAKIN", resolved.parents, test.prefs)
 
 
 
 ## imputation logistics
-vcf.file <- "../LakinFuller_004.vcf"
-vcf.file.big <- "../LakinFuller_001.vcf"
+vcf.file <- "/home/nthnrydr/Summer2017/code/LB-Impute/LaByRinth/LakinFuller_GBSv2_20170509_randremoved.vcf"
+##vcf.file.big <- "../LakinFuller_001.vcf"
 vcf.obj <- VCF(vcf.file)
-vcf.obj.big <- VCF(vcf.file.big)
+##vcf.obj.big <- VCF(vcf.file.big)
 
 ## Full imputation
 prefs$parallel <- TRUE
