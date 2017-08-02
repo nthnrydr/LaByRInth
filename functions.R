@@ -471,7 +471,8 @@ GetRelevantProbabiltiesIndex <- function(vcf, chromosomes, parent.geno, prefs) {
     })
 }
 
-
+## TODO(Jason not Nathan) Add a set of parameters for MC (to control
+## parallelization)
 LabyrinthImpute <- function(file, parents) {
     require(parallel)
     
@@ -760,7 +761,9 @@ ValidatePreferences <- function(prefs) {
     if (!is.logical(recomb.double)) {
         stop("recomb.double must be of type logical")
     }
-    if (!(0 <= read.err < 1) || !(0 <= genotype.err < 1) || !(0 <= recomb.err < 1)) {
+    if (!(0 <= read.err && read.err < 1) ||
+        !(0 <= genotype.err && genotype.err < 1) ||
+        !(0 <= recomb.err && recomb.err < 1)) {
         stop("error values must be between 0 and 1")
     }
     if (!is.numeric(recomb.dist) || !(recomb.dist > 0)) {
@@ -769,8 +772,18 @@ ValidatePreferences <- function(prefs) {
     if (!is.numeric(min.markers) || !(min.markers >= 1)) {
         stop("min.markers must be a number greater than or equal to 1")
     }
-    if (
-    ## TODO
+    if (prefs$states != length(parents) + 1) {
+        stop("illegal number of states")
+    }
+    if (!is.logical(quiet)) {
+        stop("quiet must be of type logical")
+    }
+    if (!is.logical(parallel)) {
+        stop("parallel must be of type logical")
+    }
+    if (!is.integer(cores) || !(cores >= 1)) {
+        stop("cores should be an integer greater than or equal to 1")
+    }
 }
 
 
