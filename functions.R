@@ -154,6 +154,9 @@ viterbi <- function(probs, dists, prefs) {
             })
         }
     }
+    if (prefs$viterbi.testing) {
+        return(max(extension.probs))
+    }
 
     ## The code above has already computed the optimal path, but that
     ## information is encoded within the paths.tracker matrix and needs to be
@@ -218,7 +221,7 @@ Increment <- function(x, max, min = 1) {
     } else if (x[i] < max) {  # typical case
         x[i] <- x[i] + 1  # increase the last element
     } else {  # last element is max
-        x <- c(increment(x[-i], max, min), min)  # 
+        x <- c(increment(x[-i], max, min), min)
     }
     x
 }
@@ -284,7 +287,7 @@ VCF <- function(file) {
 
 
     ## GT section
-    writeLines("Converting genoytpe data")
+    writeLines("Converting genoytype data")
     mat <- apply(samples, 1:2, function(sample) {
         str.split(sample, ":")[field.indices["GT"]]
     })
@@ -739,11 +742,15 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
         path <- GeneralViterbi(relevant.probs, dists, 1, prefs)
 
         if (n.relevant.sites != 1) {
-            path2 <- GeneralViterbi(relevant.probs, dists, n.relevant.sites, prefs)
-            path <- ResolvePaths(rbind(path, path2))
+            path2 <- GeneralViterbi(relevant.probs, dists, n.relevant.sites,
+                                    prefs)
+###path3 <- GeneralViterbi(relevant.probs, dists, floor(n.relevant.sites/2),
+###                        prefs)
+###            path <- ResolvePaths(rbind(path, path2, path3))
             if (prefs$viterbi.testing) {
-                perc.agree <- sum(!is.na(path)) / length(path)
-                return(perc.agree)
+###                perc.agree <- sum(!is.na(path)) / length(path)
+###                return(perc.agree)
+                return(path/path2)
             }
         }
 
@@ -770,6 +777,7 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
             }
         }
     }
+
 
     ## At this stage full.path has entries of 1, 2, 3, or NA which indicates
     ## respectively if a site is homozygous parent 1, homozygous parent 2,
@@ -851,13 +859,20 @@ PrintProgress <- function(f, curr.prog) {
 }
 
 
-ResolvePaths <- function(paths.mat) {
+ResolvePaths <- function(paths.mat, thresh) {
      resolve <- function(options) {
         non.na <- options[!is.na(options)]
-        if (length(non.na) == 0 || !all(non.na[1] == non.na)) {
+        if (length(non.na) == 0) {
+            ## all elements are NA
             NA
         } else {
-            non.na[1]
+            uniq <- unique(non.na)
+            ## change thresh from a percent to the number of elements in
+            ## agreement needed to make a call
+            thresh <- ceiling(thresh*length(options))
+            for (elem in uniq) {
+                ###if (sum(non.na==elem))  # TODO(Jason): finish
+            }
         }
     }
     apply(paths.mat, 2, resolve)  # implicit return

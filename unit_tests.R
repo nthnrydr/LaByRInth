@@ -3,13 +3,13 @@
     class(prefs)            <- "prefs"
 
     ## Algorithm parameters
-    prefs$parents           <- c("LAKIN", "FULLER")                 
-    prefs$resolve.conflicts <- FALSE                                
-    prefs$recomb.double     <- FALSE                                
-    prefs$read.err          <- 0.05                                 
-    prefs$genotype.err      <- 0.05                                 
-    prefs$recomb.err        <- 0.05                                 
-    prefs$recomb.dist       <- 100000                               
+    prefs$parents           <- c("LAKIN", "FULLER")
+    prefs$resolve.conflicts <- FALSE
+    prefs$recomb.double     <- FALSE
+    prefs$read.err          <- 0.05
+    prefs$genotype.err      <- 0.05
+    prefs$recomb.err        <- 0.05
+    prefs$recomb.dist       <- 100000
     prefs$min.markers       <- 1
     prefs$states            <- length(prefs$parents) + 1
 
@@ -72,12 +72,13 @@ vcf.obj <- VCF(vcf.file)
 vcf.obj.big <- VCF(vcf.file.big)
 
 ## Full imputation
-prefs$parallel <- TRUE
+prefs$parallel <- FALSE
 prefs$cores <- 40
 prefs$quiet <- TRUE
 prefs$write <- FALSE
-prefs$viterbi.testing <- FALSE
-test.impute <- LabyrinthImputeHelper(vcf.obj.big, prefs)
+prefs$viterbi.testing <- TRUE
+## TODO(Jason): sometimes the path is all 1's. Why should this be the case if it is never 2's or 3's for instance in "U6202-140"
+test.impute <- LabyrinthImputeHelper(vcf.obj, prefs)
 
 
 ## Chromosome imputation to test viterbi correctness
@@ -119,15 +120,21 @@ Display(list(lakin,
              test.chrom.impute))
 
 StatVerify <- function(vcf.obj, parent.geno, prefs) {
-    mclapply(vcf.obj$chrom.names, function(ch) {
-        unlist(mclapply(vcf.obj$variant.names, function(va) {
-            LabyrinthImputeChrom(vcf.obj, va, ch, parent.geno, prefs)
+    variants <- vcf.obj$variant.names[!(vcf.obj$variant.names %in% prefs$parents)]
+    print("A")
+    lapply(vcf.obj$chrom.names, function(ch) {
+        print("B")
+        unlist(mclapply(variants, function(va) {
+            res <- LabyrinthImputeChrom(vcf.obj, va, ch, parent.geno, prefs)
+            print(res)
+            res
         }, mc.cores=40))
-    }, mc.cores=40)
+    })
     ## keep track of the percentage of the time that the forward and the reverse
     ## viterbi algorithm agree
 }
 
+prefs$parallel <- TRUE
 prefs$viterbi.testing <- TRUE
 parent.geno <- ResolveHomozygotes(vcf.obj.big, prefs$parents)
-stats.verify <- StatVerify(vcf.obj.big, parent.geno, prefs)
+stats.verify2 <- StatVerify(vcf.obj.big, parent.geno, prefs)
