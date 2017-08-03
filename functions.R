@@ -155,7 +155,7 @@ viterbi <- function(probs, dists, prefs) {
         }
     }
     if (prefs$viterbi.testing) {
-        return(max(extension.probs))
+        return(max(probs.tracker))
     }
 
     ## The code above has already computed the optimal path, but that
@@ -739,20 +739,12 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
         relevant.probs <- emission.probs[relevant.sites, , drop=F]
         class(relevant.probs) <- "probs"
 
-        path <- GeneralViterbi(relevant.probs, dists, 1, prefs)
+        path <- viterbi(relevant.probs, dists, prefs)
 
-        if (n.relevant.sites != 1) {
-            path2 <- GeneralViterbi(relevant.probs, dists, n.relevant.sites,
-                                    prefs)
-###path3 <- GeneralViterbi(relevant.probs, dists, floor(n.relevant.sites/2),
-###                        prefs)
-###            path <- ResolvePaths(rbind(path, path2, path3))
-            if (prefs$viterbi.testing) {
-###                perc.agree <- sum(!is.na(path)) / length(path)
-###                return(perc.agree)
-                return(path/path2)
-            }
-        }
+        rev.probs <- apply(relevant.probs, 2, rev)
+        rev.path <- viterbi(rev.probs, rev(dists), prefs)
+
+        return(path/rev.path)
 
         ## TODO(Jason): instead of running the viterbi forward and backward at
         ## at even intervals specified by the user, lets run it at all of the
