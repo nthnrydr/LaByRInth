@@ -136,5 +136,57 @@ StatVerify <- function(vcf.obj, parent.geno, prefs) {
 
 prefs$parallel <- TRUE
 prefs$viterbi.testing <- TRUE
+library(parallel)
 parent.geno <- ResolveHomozygotes(vcf.obj.big, prefs$parents)
 stats.verify2 <- StatVerify(vcf.obj.big, parent.geno, prefs)
+
+
+## Updated generatePath
+slices <- list()
+slices[[1]] <- matrix(c(T,F,F,
+                        F,T,F,
+                        F,F,T), 3, byrow=T)
+slices[[2]] <- matrix(c(F,T,T,
+                        F,F,T,
+                        F,F,T), 3, byrow=T)
+slices[[3]] <- matrix(c(T,F,F,
+                        T,F,F,
+                        F,T,F), 3, byrow=T)
+slices[[4]] <- matrix(c(T,F,F,
+                        F,T,T,
+                        F,T,F), 3, byrow=T)
+slices[[5]] <- matrix(c(T,F,F,
+                        T,T,F,
+                        F,F,T), 3, byrow=T)
+slices[[6]] <- matrix(c(T,F,F,
+                        F,T,F,
+                        F,F,T), 3, byrow=T)
+slices[[7]] <- matrix(c(F,T,F,
+                        F,F,T,
+                        F,F,T), 3, byrow=T)
+slices[[8]] <- matrix(c(F,T,F,
+                        F,F,T,
+                        T,F,F), 3, byrow=T)
+path.tracker <- array(NA, dim=c(3,8,3))
+for (i in 1:8) {
+    path.tracker[, i, ] <- slices[[i]]
+}
+
+generatePath(path.tracker, c(T,T,F))
+generatePath(path.tracker, c(F,T,T))
+generatePath(path.tracker, c(F,F,T))
+
+
+## Checking imputation results for soft imputation (imputation that uses
+## 1: homozygous parent 1
+## 2: homozygous parent 2
+## 3: homozygous unknown parent
+## 4: heterozygous
+## 5: one of the alleles is from parent 1 and the other is unknown
+## 6: one of the alleles is form parent 2 and the other is unknown
+## 7: unknown (./.)
+Display(list(test.impute[, 1]))
+writeLines("\n")
+Display(list(test.impute[, 2]))
+writeLines("\n")
+Display(list(test.impute[, 3]))

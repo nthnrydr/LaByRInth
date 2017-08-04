@@ -32,32 +32,43 @@ reorder <- function(x, n) {
 }
 
 
+vec.or <- function(vec) {
+    Reduce(`|`, vec)
+}
+
+
 ##' Generate a path from a path tracker
 ##'
-##' Given a path tracker (which is a specific type of matrix used in the viterbi
-##'     algorithm) and an index representing the final hidden state of the path,
-##'     compute the path that ended in that state.
+##' Given a path tracker (which is a specific type of array produced by viterbi
+##'     algorithm) and indices representing the final hidden state of the path,
+##'     compute the paths that ended in those states. The returned path will be
+##'     a vector of integers where integers which are powers of 2 represent the
+##'     the state with the 0-based index which is the log_2 of the number.
+##'     (e.g. 1,2,4,8,16,... represent the states associated with the 1st, 2nd,
+##'     3rd, 4th, 5th, etc row)
 ##' @title
-##' @param path.tracker the integer matrix from which the path comes
-##' @param index which row does the path end at
+##' @param path.tracker the boolean 3D array in which the path info is embedded
+##' @param boolean.indices which rows do optimal paths end at
 ##' @return the path
-##' @examples
-##' path.tracker.a <- matrix(c(3,1,1,1,1,1,3,2,2,2,3,3),byrow=T,nrow=3)
-##' path.tracker.a
-##' generatePath(path.tracker.a, 1)
-##' generatePath(path.tracker.a, 2)
-##' generatePath(path.tracker.a, 3)
 ##' @author Jason Vander Woude
-generatePath <- function(path.tracker, index) {
-    path <- rep(NA, ncol(path.tracker))
+generatePath <- function(path.tracker, boolean.indices) {
+    if (length(boolean.indices) != dim(path.tracker)[1]) {
+        stop("boolean.indices has wrong length")
+    }
+    path <- rep(NA, dim(path.tracker)[2])
+    base <- 0:(dim(path.tracker)[1] - 1)
+    powers <- 2**base
     for (i in length(path):1) {
-        path[i] <- index <- path.tracker[index, i]
+        path[i] <- sum(powers[boolean.indices])
+        slice <- path.tracker[, i, ]
+        slice.optimal <- slice[boolean.indices, , drop=F]
+        boolean.indices <- apply(slice.optimal, 2, vec.or)
     }
     path  # return path
 }
 
 
-##' Find the most probable path using the viterbi algorithm
+##' Find the most probable paths using the viterbi algorithm
 ##'
 ##' See http://homepages.ulb.ac.be/~dgonze/TEACHING/viterbi.pdf for details
 ##'     about the viterbi algorithm and understanding this implementation
@@ -71,9 +82,8 @@ viterbi <- function(probs, dists, prefs) {
     nstates <- nstates.probs(probs)
     path.size <- nsites.probs(probs)
 
-    paths.tracker <- matrix(NA_integer_, nrow=nstates, ncol=path.size)
-    ## TODO(Jason): make sure this is right. Changed an invalid index j to 1 on
-    ## July 26
+    ## 3D array
+    paths.tracker <- array(NA, dim=c(nstates, path.size, nstates))
 
     ## This will keep track of the overall probabilites of each of the {nstates}
     ## final paths, so that the probability of the final paths do not have to be
@@ -87,7 +97,7 @@ viterbi <- function(probs, dists, prefs) {
 
     ## Hard code the first column to the vector 1,2,...,nstates
     ## This is what the generatePath function will need
-    paths.tracker[, 1] <- 1:nstates
+    paths.tracker[, 1, ] <- diag(TRUE, nstates)
 
     if (path.size != 1) {  # if the path size is 1 just use the emission probs
         for (site in 2:path.size) {  # for each site in the path
@@ -103,9 +113,15 @@ viterbi <- function(probs, dists, prefs) {
                     probs.tracker[i] + log(transProb(i, state, dist, prefs))
                 })
 
-                ## which partial path has the highest probability of moving to state
-                ## 'state'
-                paths.tracker[state, site] <<- which.max(extension.probs)
+                ## which partial paths have the highest probability of moving to state
+                ## 'state'? The value that is saved at this site in the
+                ## paths.tracker is the value whose binary representation
+                ## indicates which of the states at the previous sites had paths
+                ## that will extend to this site and be optimal. we need to use
+                ## -1 to convert from R's 1-based indexing to the more standard
+                ## and mathematical 0-based indexing
+                optimal.indices <- extension.probs==max(extension.probs)
+                paths.tracker[state, site, ] <<- optimal.indices
                 max(extension.probs) + log(probs[site, state])  # return new probability
             })
         }
@@ -115,7 +131,7 @@ viterbi <- function(probs, dists, prefs) {
     ## information is encoded within the paths.tracker matrix and needs to be
     ## extracted. That is what generatePath will do when passed the path.tracker
     ## matrix and the index of the optimal path.
-    generatePath(paths.tracker, which.max(probs.tracker))  # return best path
+    generatePath(paths.tracker, probs.tracker==max(probs.tracker))  # return best path
 }
 
 
@@ -635,8 +651,11 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
                     ## of the two alleles is but not the other?
 
                     text <- ref.geno[i, call]
-                } else if (call == 3) {
+                } else if (call == 4) {
                     text <- "0/1"
+                } else if (call %in% c(3,5,6,7)) {
+                    text <- "./."
+                    ## writeLines(" *  Optimal path resolution not yet implemented. Calling as ./.")
                 } else {
                     stop(paste("Invalid genotype call:", call))
                 }
