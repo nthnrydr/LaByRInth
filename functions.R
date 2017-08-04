@@ -57,50 +57,6 @@ generatePath <- function(path.tracker, index) {
 }
 
 
-GeneralViterbi <- function(probs, dists, pivot, prefs) {
-    path.size <- nrow(probs)
-
-    if (length(pivot) != 1 || pivot < 0 || pivot > path.size) {
-        stop("Invalid choice of pivot")
-    }
-
-    ## Seperate probs and dists into those before the pivot and those after the
-    ## pivot and include the pivot point in both
-    front.probs <- probs[1:pivot, drop=F]
-    front.dists <- dists[1:pivot, drop=F]
-    back.probs <- probs[pivot:path.size]
-    back.dists <- probs[pivot:path.size]
-
-    ## Reverse the front.probs and front.dists so the algorithm can work from
-    ## the pivot outward in both directions
-    front.probs <- apply(front.probs, 2, rev)
-    front.dists <- rev(back.dists)
-
-    ## Use the viterbi to compute the front and back paths--that is the path
-    ## from the pivot toward the beginning and from the pivot toward the ending
-    front.path <- viterbi(front.probs, front.dists, prefs)
-    back.path <- viterbi(back.probs, back.dists, prefs)
-
-    ## Both the front and back use the pivot point in the path calculation, but
-    ## it is possible that they will disagree on this point. We don't believe
-    ## there is any reason to suggest that one would be a better imputation than
-    ## the other. The probability of the shorter path will likely be longer
-    ## because it will be the product of more probabilities. For now, we will
-    ## just resolve the conflict by setting it to NA.
-    test <- front.path[1] != back.path[1]
-    if (test | is.na(test)) {  # if not same or one is an NA
-        back.path[1] <- NA_integer_
-    }
-
-    ## The front path calculation is actually the reverse of what it really is
-    ## so it needs to be reversed to the correct orientation and then the pivot
-    ## imputation can be removed prior to merging with the back.path
-    front.path <- rev(front.path)
-    front.path <- front.path[-length(front.path)]  # remove pivot
-    c(front.path, back.path)  # implicit return
-}
-
-
 ##' Find the most probable path using the viterbi algorithm
 ##'
 ##' See http://homepages.ulb.ac.be/~dgonze/TEACHING/viterbi.pdf for details
@@ -153,9 +109,6 @@ viterbi <- function(probs, dists, prefs) {
                 max(extension.probs) + log(probs[site, state])  # return new probability
             })
         }
-    }
-    if (prefs$viterbi.testing) {
-        return(max(probs.tracker))
     }
 
     ## The code above has already computed the optimal path, but that
@@ -281,46 +234,54 @@ VCF <- function(file) {
     vcf$variant.names <- colnames(samples)
     vcf$chrom.names <- unique(vcf$variants[, "CHROM"])
 
+    ## AD and GT section
+    writeLines("Converting genotype and allelic depth data")
+    ## Third dim = 2 because all sites must be biallelic
+    vcf$AD <- array(NA_integer_, dim=c(n.sites, n.variants, 2))
+    vcf$GT <- array(NA_integer_, dim=c(n.sites, n.variants, 2))
 
-    ## TODO(Jason): make sure that errors don't happend with '.' instead of
-    ## '3,4' or '1/2/3' the line "flat.mat <- ..." should be changed
+    for (r in 1:n.sites) {
+        if (length(str.split(vcf$variants[r, "ALT"], ",")) != 1 ) {
+            vcf$AD[r, , ] <- NA_integer_
+            vcf$GT[r, , ] <- NA_integer_
+            writeLines(paste(" *  Removing", rownames(samples)[r],
+        "from sites as it is not biallelic"))
+            next()
+        }
+        for (c in 1:n.variants) {
+            ## Separate out AD field and split it into two read depths
+            ret.val.ad <- as.numeric(str.split(
+                str.split(samples[r, c], ":")[field.indices["AD"]], ","))
+            if (length(ret.val.ad) > 2) {
+                stop(paste0("There are more than two observed alleles at ",
+                            rownames(samples)[r], " for variant ", colnames(samples)[c]))
+            }
+            if (length(ret.val.ad) < 2 && !is.na(ret.val.ad)) {
+                stop(paste0("There are less than two observed alleles at ",
+                            rownames(samples)[r], " for variant ", colnames(samples)[c]))
+            }
 
+            ## Separate out GT field and split it into two calls
+            ret.val.gt <- str.split(samples[r,c], ":")[field.indices["GT"]]
+            ret.val.gt <- gsub("\\|", "/", ret.val.gt)
+            ret.val.gt <- as.numeric(str.split(ret.val.gt, "/"))
+            if (length(ret.val.gt) > 2) {
+                stop(paste0("There are more than two genotype calls at ",
+                            rownames(samples)[r], " for variant ", colnames(samples)[c]))
+            }
+            if (length(ret.val.gt) < 2) {
+                stop(paste0("There are less than two genotype calls at ",
+                            rownames(samples)[r], " for variant ", colnames(samples)[c]))
+            }
 
-    ## GT section
-    writeLines("Converting genoytype data")
-    mat <- apply(samples, 1:2, function(sample) {
-        str.split(sample, ":")[field.indices["GT"]]
-    })
-    ## Replace '|' with '/' in genotype matrix
-    mat <- gsub("\\|", "/", mat)
-    ## introduce NA by conversion of .
-    flat.mat <- suppressWarnings(as.numeric(unlist(strsplit(mat, "/"))))
-    third.dim <- length(flat.mat) / n.sites / n.variants
-    if (third.dim%%1 != 0) {
-        stop("Error reading genotypes. One of the sites is likely not biallelic.")
+            vcf$AD[r, c, ] <- ret.val.ad
+            vcf$GT[r, c, ] <- ret.val.gt
+        }
     }
-    vcf$GT <- array(reorder(flat.mat, third.dim), dim=c(n.sites,
-                                                        n.variants, third.dim))
-    colnames(vcf$GT) <- colnames(samples)
-    rownames(vcf$GT) <- rownames(samples)
-
-
-    ## AD section
-    writeLines("Converting allelic depth data")
-    mat <- apply(samples, 1:2, function(sample) {
-        str.split(sample, ":")[field.indices["AD"]]
-    })
-
-    ## Introduce NA by conversion of .
-    flat.mat <- suppressWarnings(as.numeric(unlist(strsplit(mat, ","))))
-    third.dim <- length(flat.mat) / n.sites / n.variants
-    if (third.dim%%1 != 0) {
-        stop("Error reading allelic depths. One of the sites is likely not biallelic.")
-    }
-    vcf$AD <- array(reorder(flat.mat, third.dim), dim=c(n.sites,
-                                                        n.variants, third.dim))
     colnames(vcf$AD) <- colnames(samples)
     rownames(vcf$AD) <- rownames(samples)
+    colnames(vcf$GT) <- colnames(samples)
+    rownames(vcf$GT) <- rownames(samples)
 
     vcf  # implicit return
 }
@@ -368,6 +329,13 @@ ResolveHomozygotes <- function(vcf, samples) {
     if (! inherits(vcf, "vcf")) {
         stop("vcf must be of class 'vcf'")
     }
+    ## TODO(Jason): The original alorithm was designed such that all parental
+    ## sites in the sample should be homozygous and different from each
+    ## other. Right now we are turning some of the sites to NA's, but we aren't
+    ## doing that for both parents simultaneously
+    ## TODO(Jason): We can set the parents to NA now, but they should be set
+    ## back to the original call before turning the children imputation states
+    ## back into genotype calls
     genotype <- Get(vcf, "GT", samples)
     allele.counts <- Get(vcf, "AD", samples, vcf$chrom.names)
     ret.val <- genotype[, , 1]  # initilize to first slice in 3rd dim
@@ -427,18 +395,21 @@ GetProbabilities <- function(vcf, sample, chromosomes, parent.geno, prefs) {
         if (all(is.na(geno.calls))) {
             ret.val[row, ] <- rep(1, prefs$states)
         } else if (any(is.na(geno.calls))) {
-            stop("Some but not all genotype calls are NA")
+            stop("Some but not all genotype calls are NA")  # TODO(Jason): remove
         } else {
             ## TODO(Jason): check this against the strange entries noted in
             ## the notes file
 
-            ## 0 means reference by the vcf standards
-            ref.indices <- which(geno.calls == 0)
-            ## 1 means first alternate by the vcf standards
-            alt.indices <- which(geno.calls == 1)
+            ## ## 0 means reference by the vcf standards
+            ## ref.indices <- which(geno.calls == 0)
+            ## ## 1 means first alternate by the vcf standards
+            ## alt.indices <- which(geno.calls == 1)
 
-            ref.calls <- sum(allele.counts[ref.indices])
-            alt.calls <- sum(allele.counts[alt.indices])
+            ## ref.calls <- sum(allele.counts[ref.indices])
+            ## alt.calls <- sum(allele.counts[alt.indices])
+
+            ref.calls <- allele.counts[1]
+            alt.calls <- allele.counts[2]
 
             ## Due some to strange entries in the vcf files it is possible
             ## that both genotypes are the same number thus one of the
@@ -508,6 +479,11 @@ GetRelevantProbabiltiesIndex <- function(vcf, chromosomes, parent.geno, prefs) {
 ## TODO(Jason): remove false homozygosity because otherwise variants will only
 ## be caled homozygous of the variant seen or heterozygous even if they were
 ## actually called homozygous of the other.
+## TODO(Jason): Allow reading of VCF file to keep read quality information.
+## TODO(Jason): Allow user to spefify threshold of probability to call a
+## genotype without haplotype information. E.g. if there is not good
+## TODO(Jason): Write a vcf cleaning/filtering function that both writes out the
+## cleaned vcf to disk and return the object.
 LabyrinthImpute <- function(file, parents) {
     require(parallel)
 
@@ -601,7 +577,7 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
                       prefs$lapply(
                           variants, function(variant) {
                               result <- LabyrinthImputeSample(vcf, variant, parent.geno, prefs)
-                              print(result)
+                              ## print(result)
                               result
                           }, mc.preschedule=FALSE, mc.cores=prefs$cores))
 
@@ -616,7 +592,6 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
         writeLines(" *  Results imputed")
         writeLines(paste0(" *  Writing output to ", vcf.out))
 
-        ## Write imputations to
         ## TODO(Jason): don't use sink()
         sink(vcf.out)
         writeLines(vcf$header[1])  # Add header
@@ -625,50 +600,54 @@ LabyrinthImputeHelper <- function(vcf, prefs) {
         writeLines(names)  # Add header
         names <- str.split(names, "\t")
 
+        ## The text on all the lines before the actual genotype call data
         prefix <- cbind(vcf$variants[, 1:which(names=="INFO")], "GT")
+        ## TODO(Jason): this probably isn't necessary if I use the vcf$samples variable
+        ref.geno <- Get(vcf, "GT", prefs$parents)
+        ref.geno <- apply(ref.geno, 1:2, function(genotypes) {
+            ## Concatenate the genotypes with a slash between
+            paste0(genotypes, collapse="/")
+        })
 
         for (i in 1:n.sites) {
+            ## Write prefix columns with tab seperation
             cat(paste0(prefix[i, ], collapse="\t"))
-        cat("\t")
-        for (j in 1:n.variants) {
-    call <- result[i, j]
-            if (is.na(call)) {
-    text <- "./."
-            } else if (call %in% 1:2) {
-    ## TODO(Jason): Discuss what should be done here. Sometimes it
-    ## will impute and say that the site is from parent 1 even
-    ## though parent 1 is NA. Consider 1A:1159442 and U6202-088. It
-    ## was imputed to match LAKIN, but LAKIN is NA in the
-    ## parent.geno because LAKIN was called heterozygous
-    ## 1/0:3,7. But U6202-088 was called 1/1:0,5 suggesting that it
-    ## is pretty likely homozygous alternate. It seems like we
-    ## should be utilizing this information maybe like TIGER (see
-    ## LB-Impute paper) does. Let these calls show up in the output
-    ## file as NA's like is being done now to see how often they
-    ## occur. It seems like there is a lot of room for improvement
-    ## here. We will have to look at and understand the emission
-    ## probabilities better though. Is it valid to have sites that
-    ## look like ./1 to represent that we confidently know what one
-    ## of the two alleles is but not the other?
+            cat("\t")
+            for (j in 1:n.variants) {
+                call <- result[i, j]
+                if (is.na(call)) {
+                    text <- "./."
+                } else if (call %in% 1:2) {
+                    ## TODO(Jason): Discuss what should be done here. Sometimes it
+                    ## will impute and say that the site is from parent 1 even
+                    ## though parent 1 is NA. Consider 1A:1159442 and U6202-088. It
+                    ## was imputed to match LAKIN, but LAKIN is NA in the
+                    ## parent.geno because LAKIN was called heterozygous
+                    ## 1/0:3,7. But U6202-088 was called 1/1:0,5 suggesting that it
+                    ## is pretty likely homozygous alternate. It seems like we
+                    ## should be utilizing this information maybe like TIGER (see
+                    ## LB-Impute paper) does. Let these calls show up in the output
+                    ## file as NA's like is being done now to see how often they
+                    ## occur. It seems like there is a lot of room for improvement
+                    ## here. We will have to look at and understand the emission
+                    ## probabilities better though. Is it valid to have sites that
+                    ## look like ./1 to represent that we confidently know what one
+                    ## of the two alleles is but not the other?
 
-    geno <- parent.geno[i, call]
-    if (is.na(geno)) {
-    geno <- "."
+                    text <- ref.geno[i, call]
+                } else if (call == 3) {
+                    text <- "0/1"
+                } else {
+                    stop(paste("Invalid genotype call:", call))
                 }
-    text <- paste0(geno, "/", geno)
-            } else if (call == 3) {
-    text <- "0/1"
-            } else {
-    stop(paste("Invalid genotype call:", call))
+                cat(text)
+                if (j != n.variants) {  # add tab if not last column
+                    cat("\t")
+                }
             }
-            cat(text)
-            if (j != n.variants) {
-    cat("\t")
+            if (i != n.sites) {  # add newline if not last row
+                cat("\n")
             }
-        }
-        if (i != n.sites) {
-    cat("\n")
-        }
         }
         sink()  # turn off sink
     }
@@ -741,20 +720,6 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
 
         path <- viterbi(relevant.probs, dists, prefs)
 
-        rev.probs <- apply(relevant.probs, 2, rev)
-        rev.path <- viterbi(rev.probs, rev(dists), prefs)
-
-        return(path/rev.path)
-
-        ## TODO(Jason): instead of running the viterbi forward and backward at
-        ## at even intervals specified by the user, lets run it at all of the
-        ## called sites. The first state guess by the viterbi relies heavily on
-        ## emission probabilities (I think...look into this) so having it begin
-        ## at locations where we are fairly certain of the state makes sense
-        ## TODO(Jason): add code to compute reverse path and reconcile them. This is
-        ## probably worth putting into a function call since there are quite a few
-        ## lines of code dedicated to filling in the NA's again.
-
         full.path <- relevant.sites
 
         path.index <- 1
@@ -769,7 +734,6 @@ LabyrinthImputeChrom <- function(vcf, sample, chrom, parent.geno, prefs) {
             }
         }
     }
-
 
     ## At this stage full.path has entries of 1, 2, 3, or NA which indicates
     ## respectively if a site is homozygous parent 1, homozygous parent 2,
@@ -845,27 +809,5 @@ PrintProgress <- function(f, curr.prog) {
     msg <- readBin(f, "double")
     progress <- curr.prog + as.numeric(msg)
     cat(sprintf(" *  Imputation progress: %.2f%%\r", progress * 100))
-    #       |0%                       |50%                     |100%
-    #       |==================================================|
     progress  # implicit return
-}
-
-
-ResolvePaths <- function(paths.mat, thresh) {
-     resolve <- function(options) {
-        non.na <- options[!is.na(options)]
-        if (length(non.na) == 0) {
-            ## all elements are NA
-            NA
-        } else {
-            uniq <- unique(non.na)
-            ## change thresh from a percent to the number of elements in
-            ## agreement needed to make a call
-            thresh <- ceiling(thresh*length(options))
-            for (elem in uniq) {
-                ###if (sum(non.na==elem))  # TODO(Jason): finish
-            }
-        }
-    }
-    apply(paths.mat, 2, resolve)  # implicit return
 }
