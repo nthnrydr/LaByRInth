@@ -3,13 +3,13 @@
     class(prefs)            <- "prefs"
 
     ## Algorithm parameters
-    prefs$parents           <- c("LAKIN", "FULLER")                 
-    prefs$resolve.conflicts <- FALSE                                
-    prefs$recomb.double     <- FALSE                                
-    prefs$read.err          <- 0.05                                 
-    prefs$genotype.err      <- 0.05                                 
-    prefs$recomb.err        <- 0.05                                 
-    prefs$recomb.dist       <- 100000                               
+    prefs$parents           <- c("LAKIN", "FULLER")
+    prefs$resolve.conflicts <- FALSE
+    prefs$recomb.double     <- FALSE
+    prefs$read.err          <- 0.05
+    prefs$genotype.err      <- 0.05
+    prefs$recomb.err        <- 0.05
+    prefs$recomb.dist       <- 100000
     prefs$min.markers       <- 1
     prefs$states            <- length(prefs$parents) + 1
 
@@ -17,6 +17,8 @@
     prefs$quiet             <- FALSE
     prefs$cores             <- 4
     prefs$parallel          <- FALSE
+    prefs$write             <- TRUE
+
 ## end prefs
 
 
@@ -70,10 +72,13 @@ vcf.obj <- VCF(vcf.file)
 vcf.obj.big <- VCF(vcf.file.big)
 
 ## Full imputation
-prefs$parallel <- TRUE
+prefs$parallel <- FALSE
 prefs$cores <- 40
 prefs$quiet <- TRUE
-test.impute <- LabyrinthImputeHelper(vcf.obj.big, prefs)
+prefs$write <- FALSE
+prefs$viterbi.testing <- TRUE
+## TODO(Jason): sometimes the path is all 1's. Why should this be the case if it is never 2's or 3's for instance in "U6202-140"
+test.impute <- LabyrinthImputeHelper(vcf.obj, prefs)
 
 
 ## Chromosome imputation to test viterbi correctness
@@ -111,4 +116,77 @@ lakin <- Get(vcf.obj, "GT", "LAKIN", chrom)
 fuller <- Get(vcf.obj, "GT", "FULLER", chrom)
 Display(list(lakin,
              fuller,
+             data[, , 1],
              test.chrom.impute))
+
+StatVerify <- function(vcf.obj, parent.geno, prefs) {
+    variants <- vcf.obj$variant.names[!(vcf.obj$variant.names %in% prefs$parents)]
+    print("A")
+    lapply(vcf.obj$chrom.names, function(ch) {
+        print("B")
+        unlist(mclapply(variants, function(va) {
+            res <- LabyrinthImputeChrom(vcf.obj, va, ch, parent.geno, prefs)
+            print(res)
+            res
+        }, mc.cores=40))
+    })
+    ## keep track of the percentage of the time that the forward and the reverse
+    ## viterbi algorithm agree
+}
+
+prefs$parallel <- TRUE
+prefs$viterbi.testing <- TRUE
+library(parallel)
+parent.geno <- ResolveHomozygotes(vcf.obj.big, prefs$parents)
+stats.verify2 <- StatVerify(vcf.obj.big, parent.geno, prefs)
+
+
+## Updated generatePath
+slices <- list()
+slices[[1]] <- matrix(c(T,F,F,
+                        F,T,F,
+                        F,F,T), 3, byrow=T)
+slices[[2]] <- matrix(c(F,T,T,
+                        F,F,T,
+                        F,F,T), 3, byrow=T)
+slices[[3]] <- matrix(c(T,F,F,
+                        T,F,F,
+                        F,T,F), 3, byrow=T)
+slices[[4]] <- matrix(c(T,F,F,
+                        F,T,T,
+                        F,T,F), 3, byrow=T)
+slices[[5]] <- matrix(c(T,F,F,
+                        T,T,F,
+                        F,F,T), 3, byrow=T)
+slices[[6]] <- matrix(c(T,F,F,
+                        F,T,F,
+                        F,F,T), 3, byrow=T)
+slices[[7]] <- matrix(c(F,T,F,
+                        F,F,T,
+                        F,F,T), 3, byrow=T)
+slices[[8]] <- matrix(c(F,T,F,
+                        F,F,T,
+                        T,F,F), 3, byrow=T)
+path.tracker <- array(NA, dim=c(3,8,3))
+for (i in 1:8) {
+    path.tracker[, i, ] <- slices[[i]]
+}
+
+generatePath(path.tracker, c(T,T,F))
+generatePath(path.tracker, c(F,T,T))
+generatePath(path.tracker, c(F,F,T))
+
+
+## Checking imputation results for soft imputation (imputation that uses
+## 1: homozygous parent 1
+## 2: homozygous parent 2
+## 3: homozygous unknown parent
+## 4: heterozygous
+## 5: one of the alleles is from parent 1 and the other is unknown
+## 6: one of the alleles is form parent 2 and the other is unknown
+## 7: unknown (./.)
+Display(list(test.impute[, 1]))
+writeLines("\n")
+Display(list(test.impute[, 2]))
+writeLines("\n")
+Display(list(test.impute[, 3]))
